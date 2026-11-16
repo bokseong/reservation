@@ -1,5 +1,6 @@
-import { auth, db, functions } from './firebase-config.js';
-import { signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { auth, appCheck, db, functions } from './firebase-config.js';
+import { signInAnonymously } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
@@ -27,6 +28,7 @@ function saveSession(value) {
 
 async function initialize() {
   try {
+    await getToken(appCheck, false);
     if (!auth.currentUser) await signInAnonymously(auth);
     await loadSettings();
     if (session?.reservationId && session?.token) watchReservation(session.reservationId);
@@ -183,6 +185,5 @@ qs('#forget-button').addEventListener('click', () => {
   saveSession(null); clearInterval(recoveredTimer); unsubscribeReservation?.(); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
 });
 
-onAuthStateChanged(auth, (user) => { if (user && qs('#loading-view')) initialize(); });
-if (!auth.currentUser) signInAnonymously(auth).catch((error) => { show(qs('#loading-view'), false); showForm(); showToast(friendlyError(error), 6000); });
+initialize();
 

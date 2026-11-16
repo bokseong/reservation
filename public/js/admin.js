@@ -1,5 +1,6 @@
-import { auth, db, functions } from './firebase-config.js';
+import { auth, appCheck, db, functions } from './firebase-config.js';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
@@ -121,7 +122,7 @@ qsa('[data-export]').forEach((button) => button.addEventListener('click', async 
 
 qs('#admin-login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#admin-login-error'), false);
-  try { await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
+  try { await getToken(appCheck, false); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
 });
 qs('#admin-logout').addEventListener('click', () => signOut(auth));
