@@ -31,6 +31,8 @@ async function loadAdmin() {
     profile = response.data.profile;
     const isAdmin1 = profile.role === 'admin';
     qs('#admin-role-label').textContent = isAdmin1 ? (profile.absoluteAdmin ? '절대 관리자 · 1급' : '1급 관리자') : '2급 관리자';
+    const assignedNames = availableMenuItems().filter((menu) => profile.assignedMenuIds?.includes(menu.id)).map((menu) => menu.name);
+    qs('#admin-scope-label').textContent = isAdmin1 ? '전체 메뉴 예약을 관리합니다.' : assignedNames.length ? `전담 메뉴: ${assignedNames.join(', ')} · 해당 메뉴 예약만 표시됩니다.` : '전담 메뉴가 배정되지 않아 예약이 표시되지 않습니다.';
     show(qs('#settings-link'), isAdmin1);
     qsa('.admin-only-control').forEach((element) => show(element, isAdmin1));
     qsa('[data-admin-action]').forEach((button) => show(button, isAdmin1 || ['cooking_start', 'cooking_complete'].includes(button.dataset.adminAction)));
@@ -133,10 +135,11 @@ function renderReservations() {
   const menu = qs('#reservation-menu-filter').value;
   const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName, item.menuName].some((value) => String(value || '').toLowerCase().includes(keyword)));
   const visible = filtered.slice(0, 100);
-  qs('#reservation-result-count').textContent = filtered.length > 100 ? `총 ${filtered.length}건 중 최근 100건을 표시합니다.` : `총 ${filtered.length}건`;
+  const scope = profile?.role === 'admin' ? '전체 메뉴' : '전담 메뉴만';
+  qs('#reservation-result-count').textContent = filtered.length > 100 ? `${scope} · 총 ${filtered.length}건 중 최근 100건을 표시합니다.` : `${scope} · 총 ${filtered.length}건`;
   qs('#admin-reservations').innerHTML = visible.map((item) => `<article class="data-row reservation-record">
-    <div><strong>${escapeHtml(item.reservationNo)}</strong><span>예약자: ${escapeHtml(item.studentName)} · ${escapeHtml(item.studentIdNormalized)}</span></div>
-    <div class="reservation-record__details"><span>신청 메뉴: ${escapeHtml(item.menuName || settings.serviceName || '')}${Number.isFinite(Number(item.menuPrice)) ? ` · ${Number(item.menuPrice).toLocaleString('ko-KR')}원` : ''}</span><span>${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div>
+    <div><strong>${escapeHtml(item.reservationNo)}</strong><span>학번: ${escapeHtml(item.studentIdNormalized)}</span><span>이름: ${escapeHtml(item.studentName)}</span></div>
+    <div class="reservation-record__details"><span>주문 음식: ${escapeHtml(item.menuName || settings.serviceName || '')}</span><span>주문 가격: ${Number.isFinite(Number(item.menuPrice)) ? `${Number(item.menuPrice).toLocaleString('ko-KR')}원` : '가격 정보 없음'}</span><span>${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div>
   </article>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
 }
 
