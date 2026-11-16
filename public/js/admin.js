@@ -1,7 +1,7 @@
 import { auth, db, functions } from './firebase-config.js';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-functions.js';
+import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
 
 const getStaffSession = httpsCallable(functions, 'getStaffSession');

@@ -1,7 +1,7 @@
 import { auth, db, functions } from './firebase-config.js';
-import { signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
-import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
-import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-functions.js';
+import { signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
