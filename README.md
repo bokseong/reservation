@@ -6,7 +6,7 @@
 - 예약 신청: `reserve.html` — 메뉴 선택 후 학번·이름으로 신규 예약
 - 관리자 운영: `admin.html` — 1·2급 공용 예약 조회와 조리 상태 관리. 1급에는 전체 운영 기능 추가 제공
 - 1급 설정: `settings.html` — 관리자 등급, 휴식시간, 행사·메뉴 설정, CSV 관리
-- 데이터: Firebase 프로젝트 `hs-bokseong`의 named Firestore database `reservation`
+- 데이터: Firebase 프로젝트 `jw-astro09`의 named Firestore database `reservation`
 - 서버: Cloud Functions 2nd gen (`asia-northeast3`)
 - 정적 배포: <https://bokseong.github.io/reservation/>
 
@@ -16,7 +16,7 @@
 
 ## Firebase 준비
 
-1. `hs-bokseong` 프로젝트에 Firestore database ID `reservation`, location `asia-northeast3`를 production mode로 만듭니다.
+1. `jw-astro09` 프로젝트에 Firestore database ID `reservation`, location `asia-northeast3`를 production mode로 만듭니다.
 2. Firebase Authentication에서 직원용 Email/Password와 Google provider를 활성화합니다.
 3. Authentication 승인 도메인에 `bokseong.github.io`를 추가합니다.
 4. 아래 명령으로 rules, indexes, Functions를 배포합니다.
@@ -24,8 +24,15 @@
 ```powershell
 Set-Location C:\Users\user\Documents\ChatGPT\학교\reservation
 npm.cmd --prefix functions install
-npx.cmd firebase-tools@15.36.0 deploy --only firestore:rules,firestore:indexes,functions --project hs-bokseong
+npx.cmd firebase-tools@15.36.0 deploy --only firestore:rules,firestore:indexes,functions --project jw-astro09
 ```
+
+## 메뉴와 Firebase SDK 설정
+
+- 메뉴: `public/js/menu.js`의 `MENU_ITEMS`에서 `id`, `name`, `price`, `description`, `emoji`, `available`을 수정합니다.
+- 메뉴 변경 후 `npm.cmd run sync:menu`를 실행하면 Functions 검증용 메뉴 파일이 갱신됩니다. `npm test`, `npm run check`, `npm run deploy:backend`는 이 동기화를 자동 실행합니다.
+- Firebase Web SDK: `public/js/firebase.js`의 `firebaseConfig`에 Firebase Console의 Web App 설정을 입력합니다.
+- App Check를 사용할 경우 같은 파일의 `recaptchaEnterpriseSiteKey`에 reCAPTCHA Enterprise 사이트 키를 입력합니다. 빈 문자열이면 App Check를 사용하지 않습니다.
 
 `github.jwastro09@gmail.com`은 절대 관리자입니다. Google 또는 이메일로 처음 로그인하면 `staffProfiles`에 자동 등록되며, 다른 관리자가 강등하거나 비활성화할 수 없습니다. 이후 직원 계정은 관리자 화면에서 발급합니다.
 

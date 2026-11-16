@@ -1,9 +1,10 @@
-import { auth, appCheck, db, functions } from './firebase-config.js';
+import { auth, appCheck, db, functions } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
+import { availableMenuItems } from './menu.js';
 
 const getStaffSession = httpsCallable(functions, 'getStaffSession');
 const updateSettings = httpsCallable(functions, 'updateSettings');
@@ -113,9 +114,8 @@ function renderReservations() {
 function renderSettings() {
   const form = qs('#settings-form');
   for (const name of ['eventName', 'serviceName', 'notice', 'noShowGraceSeconds', 'noShowListSeconds', 'maxHoldCount']) if (form.elements[name]) form.elements[name].value = settings[name] ?? '';
-  form.elements.menus.value = (Array.isArray(settings.menus) ? settings.menus : [settings.serviceName || '']).filter(Boolean).join('\n');
   const currentFilter = qs('#reservation-menu-filter').value;
-  const menus = Array.isArray(settings.menus) ? settings.menus : [];
+  const menus = availableMenuItems().map((menu) => menu.name);
   qs('#reservation-menu-filter').innerHTML = '<option value="">전체 메뉴</option>' + menus.map((menu) => `<option value="${escapeHtml(menu)}">${escapeHtml(menu)}</option>`).join('');
   if (menus.includes(currentFilter)) qs('#reservation-menu-filter').value = currentFilter;
   form.elements.reservationStartAt.value = toDateTimeLocal(settings.reservationStartAt);
@@ -217,7 +217,6 @@ qs('#settings-form').addEventListener('submit', async (event) => {
   try {
     await updateSettings({
       eventName: form.get('eventName'), serviceName: form.get('serviceName'), notice: form.get('notice'),
-      menus: String(form.get('menus') || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
       reservationStartAt: form.get('reservationStartAt'), reservationEndAt: form.get('reservationEndAt'),
       noShowGraceSeconds: Number(form.get('noShowGraceSeconds')), noShowListSeconds: Number(form.get('noShowListSeconds')),
       maxHoldCount: Number(form.get('maxHoldCount')), acceptingReservations: event.currentTarget.elements.acceptingReservations.checked,
@@ -263,12 +262,12 @@ qsa('[data-export]').forEach((button) => button.addEventListener('click', async 
 
 qs('#admin-login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#admin-login-error'), false);
-  try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
+  try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
 });
 qs('#admin-google-login').addEventListener('click', async () => {
   show(qs('#admin-login-error'), false); setBusy(qs('#admin-google-login'), true, 'Google 로그인 중…');
-  try { await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
   finally { setBusy(qs('#admin-google-login'), false); }
 });

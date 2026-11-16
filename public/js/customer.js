@@ -1,4 +1,4 @@
-import { functions } from './firebase-config.js';
+import { functions } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 

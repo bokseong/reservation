@@ -1,4 +1,4 @@
-import { auth, appCheck, db, functions } from './firebase-config.js';
+import { auth, appCheck, db, functions } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
@@ -39,7 +39,6 @@ async function loadSettingsPage() {
 function renderSettings() {
   const form = qs('#event-settings-form');
   for (const name of ['eventName', 'serviceName', 'notice', 'noShowGraceSeconds', 'noShowListSeconds', 'maxHoldCount']) form.elements[name].value = settings[name] ?? '';
-  form.elements.menus.value = (Array.isArray(settings.menus) ? settings.menus : [settings.serviceName || '']).filter(Boolean).join('\n');
   form.elements.reservationStartAt.value = toDateTimeLocal(settings.reservationStartAt);
   form.elements.reservationEndAt.value = toDateTimeLocal(settings.reservationEndAt);
   form.elements.acceptingReservations.checked = settings.acceptingReservations === true;
@@ -64,7 +63,7 @@ qsa('[data-settings-tab]').forEach((button) => button.addEventListener('click', 
 qs('#event-settings-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const button = event.submitter; const form = new FormData(event.currentTarget); setBusy(button, true);
   try {
-    await updateSettings({ eventName: form.get('eventName'), serviceName: form.get('serviceName'), menus: String(form.get('menus') || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean), notice: form.get('notice'), reservationStartAt: form.get('reservationStartAt'), reservationEndAt: form.get('reservationEndAt'), noShowGraceSeconds: Number(form.get('noShowGraceSeconds')), noShowListSeconds: Number(form.get('noShowListSeconds')), maxHoldCount: Number(form.get('maxHoldCount')), acceptingReservations: event.currentTarget.elements.acceptingReservations.checked, operationId: operationId() });
+    await updateSettings({ eventName: form.get('eventName'), serviceName: form.get('serviceName'), notice: form.get('notice'), reservationStartAt: form.get('reservationStartAt'), reservationEndAt: form.get('reservationEndAt'), noShowGraceSeconds: Number(form.get('noShowGraceSeconds')), noShowListSeconds: Number(form.get('noShowListSeconds')), maxHoldCount: Number(form.get('maxHoldCount')), acceptingReservations: event.currentTarget.elements.acceptingReservations.checked, operationId: operationId() });
     showToast('설정을 저장했습니다.');
   } catch (error) { showToast(friendlyError(error), 5000); } finally { setBusy(button, false); }
 });
@@ -91,7 +90,7 @@ qsa('[data-settings-export]').forEach((button) => button.addEventListener('click
   catch (error) { showToast(friendlyError(error), 5000); } finally { setBusy(button, false); }
 }));
 
-qs('#settings-login-form').addEventListener('submit', async (event) => { event.preventDefault(); show(qs('#settings-login-error'), false); try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#settings-email').value.trim(), qs('#settings-password').value); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } });
-qs('#settings-google-login').addEventListener('click', async () => { show(qs('#settings-login-error'), false); setBusy(qs('#settings-google-login'), true, 'Google 로그인 중…'); try { await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } finally { setBusy(qs('#settings-google-login'), false); } });
+qs('#settings-login-form').addEventListener('submit', async (event) => { event.preventDefault(); show(qs('#settings-login-error'), false); try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#settings-email').value.trim(), qs('#settings-password').value); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } });
+qs('#settings-google-login').addEventListener('click', async () => { show(qs('#settings-login-error'), false); setBusy(qs('#settings-google-login'), true, 'Google 로그인 중…'); try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } finally { setBusy(qs('#settings-google-login'), false); } });
 qs('#settings-logout').addEventListener('click', () => signOut(auth));
 onAuthStateChanged(auth, (user) => { unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = []; if (user && !user.isAnonymous) loadSettingsPage(); else { show(qs('#settings-login'), true); show(qs('#settings-view'), false); } });

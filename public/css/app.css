@@ -115,6 +115,7 @@ small { color: var(--muted); font-weight: 500; }
 .kiosk-menu__number { position: absolute; top: 13px; left: 14px; color: #767676; font-size: 12px; letter-spacing: .12em; }
 .kiosk-menu__icon { display: grid; place-items: center; width: 68px; height: 68px; margin-bottom: 13px; border-radius: 50%; background: #292929; font-size: 32px; }
 .kiosk-menu strong { max-width: 100%; font-size: 20px; overflow-wrap: anywhere; }
+.kiosk-menu__price { margin-top: 7px; color: #fff; font-size: 17px; font-weight: 800; }
 .kiosk-menu small { margin-top: 8px; color: var(--muted); }
 .kiosk-menu.selected .kiosk-menu__body { transform: translateY(-3px); border-color: var(--accent); background: linear-gradient(145deg, rgba(255,92,53,.22), #15110f); box-shadow: 0 14px 35px rgba(255,92,53,.14); }
 .kiosk-menu.selected .kiosk-menu__icon { background: var(--accent); }

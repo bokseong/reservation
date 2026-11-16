@@ -1,4 +1,4 @@
-import { auth, appCheck, db, functions } from './firebase-config.js';
+import { auth, appCheck, db, functions } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, where, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
@@ -166,12 +166,12 @@ qsa('[data-mode]').forEach((button) => button.addEventListener('click', async ()
 qsa('[data-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 qs('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#login-error'), false);
-  try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
+  try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
 });
 qs('#google-login').addEventListener('click', async () => {
   show(qs('#login-error'), false); setBusy(qs('#google-login'), true, 'Google 로그인 중…');
-  try { await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
   finally { setBusy(qs('#google-login'), false); }
 });

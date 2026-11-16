@@ -1,6 +1,7 @@
-import { functions } from './firebase-config.js';
+import { functions } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, escapeHtml, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
+import { availableMenuItems, formatPrice } from './menu.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
@@ -23,7 +24,7 @@ function showStep(step) {
 }
 
 function updateSummary() {
-  qs('#summary-menu').textContent = selectedMenu || '메뉴를 선택해 주세요';
+  qs('#summary-menu').textContent = selectedMenu ? `${selectedMenu.name} · ${formatPrice(selectedMenu.price)}` : '메뉴를 선택해 주세요';
   const studentId = qs('#reserve-student-id').value.trim();
   const studentName = qs('#reserve-student-name').value.trim();
   qs('#summary-student').textContent = studentId || studentName ? `${studentId} ${studentName}`.trim() : '학생 정보 입력 전';
@@ -35,9 +36,9 @@ async function initialize() {
     const response = await getPublicSettings();
     settings = response.data;
     qs('#reserve-subtitle').textContent = `${settings.eventName || '복성고 학술문화제'} · ${settings.serviceName || '먹거리 부스'}`;
-    const menus = Array.isArray(settings.menus) ? settings.menus : [];
+    const menus = availableMenuItems();
     availableMenus = menus;
-    qs('#menu-options').innerHTML = menus.map((menu, index) => `<button type="button" class="kiosk-menu" data-menu-index="${index}" aria-pressed="false"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">🍴</span><strong>${escapeHtml(menu)}</strong><small>선택하기</small></span></button>`).join('');
+    qs('#menu-options').innerHTML = menus.map((menu, index) => `<button type="button" class="kiosk-menu" data-menu-index="${index}" aria-pressed="false"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">${escapeHtml(menu.emoji || '🍴')}</span><strong>${escapeHtml(menu.name)}</strong><span class="kiosk-menu__price">${formatPrice(menu.price)}</span><small>${escapeHtml(menu.description || '선택하기')}</small></span></button>`).join('');
     const notice = qs('#reserve-notice');
     notice.textContent = settings.notice || '';
     show(notice, Boolean(settings.notice));
@@ -54,7 +55,7 @@ qs('#menu-options').addEventListener('click', (event) => {
   const button = event.target.closest('[data-menu-index]');
   if (!button) return;
 
-  selectedMenu = availableMenus[Number(button.dataset.menuIndex)] || '';
+  selectedMenu = availableMenus[Number(button.dataset.menuIndex)] || null;
   qs('#menu-options').querySelectorAll('.kiosk-menu').forEach((menuButton) => {
     const isSelected = menuButton === button;
     menuButton.classList.toggle('selected', isSelected);
@@ -74,7 +75,7 @@ qs('#info-next').addEventListener('click', () => {
   const studentId = qs('#reserve-student-id');
   const studentName = qs('#reserve-student-name');
   if (!studentId.reportValidity() || !studentName.reportValidity()) return;
-  qs('#confirm-menu').textContent = selectedMenu;
+  qs('#confirm-menu').textContent = `${selectedMenu.name} · ${formatPrice(selectedMenu.price)}`;
   qs('#confirm-student').textContent = `${studentId.value.trim()} ${studentName.value.trim()}`;
   showStep(3);
 });
@@ -88,13 +89,13 @@ qs('#reserve-form').addEventListener('submit', async (event) => {
     return;
   }
   const button = qs('#reserve-submit');
-  const menuName = selectedMenu;
+  const menuId = selectedMenu.id;
   const studentId = qs('#reserve-student-id').value.trim();
   const studentName = qs('#reserve-student-name').value.trim();
   const token = customerToken();
   setBusy(button, true);
   try {
-    const response = await createReservation({ menuName, studentId, studentName, customerToken: token, operationId: operationId() });
+    const response = await createReservation({ menuId, studentId, studentName, customerToken: token, operationId: operationId() });
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ reservationId: response.data.reservation.id, token }));
     location.href = './index.html';
   } catch (error) {

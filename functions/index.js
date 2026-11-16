@@ -5,9 +5,10 @@ import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { normalizeStudentId, normalizeName, csvRows, koreaDate } from './lib.js';
+import { availableMenuItems, findMenu } from './menu.js';
 
 if (!getApps().length) initializeApp();
-setGlobalOptions({ region: 'asia-northeast3', maxInstances: 20, timeoutSeconds: 60 });
+setGlobalOptions({ region: 'asia-northeast3', maxInstances: 20, timeoutSeconds: 60, invoker: 'public' });
 
 const db = getFirestore('reservation');
 const auth = getAuth();
@@ -19,7 +20,6 @@ const SETTINGS_REF = db.doc('settings/event');
 const DEFAULT_SETTINGS = {
   eventName: '2026 복성고 학술문화제',
   serviceName: '먹거리 부스',
-  menus: ['떡볶이'],
   reservationStartAt: Timestamp.fromDate(new Date('2026-11-20T03:30:00.000Z')),
   reservationEndAt: Timestamp.fromDate(new Date('2026-11-20T07:30:00.000Z')),
   acceptingReservations: true,
@@ -42,14 +42,7 @@ function requireAuth(request) {
 
 async function ensureSettings() {
   const snapshot = await SETTINGS_REF.get();
-  if (snapshot.exists) {
-    const settings = snapshot.data();
-    if (!Array.isArray(settings.menus) || !settings.menus.length) {
-      settings.menus = DEFAULT_SETTINGS.menus;
-      await SETTINGS_REF.set({ menus: settings.menus, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    }
-    return settings;
-  }
+  if (snapshot.exists) return snapshot.data();
   await SETTINGS_REF.set(DEFAULT_SETTINGS);
   return (await SETTINGS_REF.get()).data();
 }
@@ -71,13 +64,6 @@ async function getProfile(request, role = 'staff') {
   return { uid: user.uid, email, ...profile, absoluteAdmin };
 }
 
-function normalizeMenus(value, fallback = []) {
-  const input = Array.isArray(value) ? value : fallback;
-  const menus = [...new Set(input.map((item) => String(item || '').trim()).filter(Boolean))];
-  if (!menus.length || menus.length > 20 || menus.some((item) => item.length > 30)) throw new HttpsError('invalid-argument', '메뉴는 1–20개, 메뉴 이름은 30자 이하로 입력해 주세요.');
-  return menus;
-}
-
 function parseOperationId(value) {
   const id = String(value || '');
   if (!/^[0-9a-f-]{20,64}$/i.test(id)) throw new HttpsError('invalid-argument', '올바른 operationId가 필요합니다.');
@@ -95,6 +81,7 @@ function publicReservation(id, data) {
     studentIdNormalized: data.studentIdNormalized,
     studentName: data.studentName,
     menuName: data.menuName || null,
+    menuPrice: Number(data.menuPrice || 0),
     currentStatus: data.currentStatus,
     teamsAhead: data.teamsAhead ?? 0,
     holdCount: data.holdCount ?? 0,
@@ -185,7 +172,7 @@ export const getPublicSettings = onCall(async () => {
   return {
     eventName: settings.eventName,
     serviceName: settings.serviceName,
-    menus: Array.isArray(settings.menus) && settings.menus.length ? settings.menus : DEFAULT_SETTINGS.menus,
+    menus: availableMenuItems().map(({ id, name, price, description, emoji }) => ({ id, name, price, description, emoji })),
     acceptingReservations: settings.acceptingReservations === true,
     acceptingNow: settings.acceptingReservations === true && now <= end,
     reservationStartAt: settings.reservationStartAt?.toDate?.().toISOString(),
@@ -205,7 +192,9 @@ export const createReservation = onCall(async (request) => {
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const token = String(request.data?.customerToken || '');
-  const menuName = String(request.data?.menuName || '').trim();
+  const menuId = String(request.data?.menuId || '').trim();
+  const menu = findMenu(menuId);
+  if (!menu || menu.available === false) throw new HttpsError('invalid-argument', '선택한 메뉴를 찾을 수 없습니다.');
   if (!/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '고객 token 형식이 올바르지 않습니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const reservationNo = await allocateNumber('reservation', 'R');
@@ -218,8 +207,6 @@ export const createReservation = onCall(async (request) => {
     const settingsSnapshot = await transaction.get(SETTINGS_REF);
     if (!settingsSnapshot.exists) throw new HttpsError('failed-precondition', '행사 설정이 아직 준비되지 않았습니다.');
     const settings = settingsSnapshot.data();
-    const menus = normalizeMenus(settings.menus, DEFAULT_SETTINGS.menus);
-    if (!menus.includes(menuName)) throw new HttpsError('invalid-argument', '선택한 메뉴를 찾을 수 없습니다.');
     const now = Date.now();
     if (settings.acceptingReservations !== true || now > settings.reservationEndAt.toMillis()) {
       throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.', { canLookup: true });
@@ -234,7 +221,7 @@ export const createReservation = onCall(async (request) => {
     const queueOrderNumber = Number(queueNo.split('-')[1]);
     const ref = db.collection('reservations').doc();
     const reservation = {
-      reservationNo, studentIdNormalized: studentId, studentName, menuName,
+      reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price,
       createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: active.size,
       estimatedWaitMinutes: null, test: false,
       currentStatus: active.empty ? 'called' : 'waiting', queueOrder: queueOrderNumber, teamsAhead: active.size,
@@ -421,7 +408,7 @@ export const updateSettings = onCall(async (request) => {
   try { serviceName = normalizeName(data.serviceName); eventName = String(data.eventName || '').trim(); } catch (error) { throw new HttpsError('invalid-argument', error.message); }
   if (eventName.length < 2 || eventName.length > 50) throw new HttpsError('invalid-argument', '행사 이름은 2–50자로 입력해 주세요.');
   const updates = {
-    eventName, serviceName, menus: normalizeMenus(data.menus, [serviceName]), notice: String(data.notice || '').trim().slice(0, 100),
+    eventName, serviceName, notice: String(data.notice || '').trim().slice(0, 100),
     reservationStartAt: Timestamp.fromDate(start), reservationEndAt: Timestamp.fromDate(end), acceptingReservations: data.acceptingReservations === true,
     noShowGraceSeconds: Math.max(10, Math.min(600, Number(data.noShowGraceSeconds) || 60)),
     noShowListSeconds: Math.max(30, Math.min(3600, Number(data.noShowListSeconds) || 180)),
@@ -503,13 +490,13 @@ export const exportCsv = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async
   }
   if (type === 'summary') {
     const snapshot = await db.collection('reservations').orderBy('createdAt').get();
-    const headers = ['예약번호', '학번', '이름', '메뉴', '신청시각', '신청 때 앞 팀 수', '예상 대기(분)', '수령시각', '최종상태', '걸린 시간(분)', '보류 횟수', '늦음(초)', '다시조회 횟수', '테스트'];
+    const headers = ['예약번호', '학번', '이름', '메뉴', '가격', '신청시각', '신청 때 앞 팀 수', '예상 대기(분)', '수령시각', '최종상태', '걸린 시간(분)', '보류 횟수', '늦음(초)', '다시조회 횟수', '테스트'];
     const rows = await Promise.all(snapshot.docs.map(async (item) => {
       const value = item.data();
       const events = await db.collection('reservationEvents').where('reservationId', '==', item.id).get();
       const pickup = events.docs.map((entry) => entry.data()).find((entry) => entry.type === 'pickup' && entry.lateSeconds != null);
       const duration = value.pickupAt && value.createdAt ? ((value.pickupAt.toMillis() - value.createdAt.toMillis()) / 60000).toFixed(1) : '';
-      return [value.reservationNo, value.studentIdNormalized, value.studentName, value.menuName || '', koreaDate(value.createdAt), value.queueIndexAtCreation, value.estimatedWaitMinutes, koreaDate(value.pickupAt), value.currentStatus, duration, value.holdCount, pickup?.lateSeconds ?? '', value.relookupCount || 0, value.test ? '예' : '아니오'];
+      return [value.reservationNo, value.studentIdNormalized, value.studentName, value.menuName || '', value.menuPrice || 0, koreaDate(value.createdAt), value.queueIndexAtCreation, value.estimatedWaitMinutes, koreaDate(value.pickupAt), value.currentStatus, duration, value.holdCount, pickup?.lateSeconds ?? '', value.relookupCount || 0, value.test ? '예' : '아니오'];
     }));
     return { filename: `요약_${date}.csv`, content: csvRows(headers, rows) };
   }
