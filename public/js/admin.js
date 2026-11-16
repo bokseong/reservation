@@ -122,7 +122,7 @@ qsa('[data-export]').forEach((button) => button.addEventListener('click', async 
 
 qs('#admin-login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#admin-login-error'), false);
-  try { await getToken(appCheck, false); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
+  try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
 });
 qs('#admin-logout').addEventListener('click', () => signOut(auth));

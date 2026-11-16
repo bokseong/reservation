@@ -161,7 +161,7 @@ qsa('[data-mode]').forEach((button) => button.addEventListener('click', async ()
 qsa('[data-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 qs('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#login-error'), false);
-  try { await getToken(appCheck, false); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
+  try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
 });
 qs('#logout-button').addEventListener('click', () => signOut(auth));

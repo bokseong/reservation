@@ -28,7 +28,7 @@ function saveSession(value) {
 
 async function initialize() {
   try {
-    await getToken(appCheck, false);
+    await getToken(appCheck, true);
     if (!auth.currentUser) await signInAnonymously(auth);
     await loadSettings();
     if (session?.reservationId && session?.token) watchReservation(session.reservationId);
