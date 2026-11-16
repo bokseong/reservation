@@ -1,5 +1,5 @@
 import { auth, appCheck, db, functions } from './firebase-config.js';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, where, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
@@ -15,6 +15,8 @@ let settings = null;
 let reservations = [];
 let events = [];
 let unsubscribers = [];
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 function resetSubscriptions() {
   unsubscribers.forEach((unsubscribe) => unsubscribe());
@@ -75,7 +77,7 @@ function renderQueue() {
   qs('#queue-count').textContent = reservations.length;
   if (called) {
     qs('#current-reservation').textContent = called.reservationNo;
-    qs('#current-student').textContent = `${called.studentIdNormalized} ${called.studentName}`;
+    qs('#current-student').textContent = `${called.studentIdNormalized} ${called.studentName} · ${called.menuName || settings?.serviceName || ''}`;
   } else {
     qs('#current-reservation').textContent = '대기 팀 없음';
     qs('#current-student').textContent = '';
@@ -87,7 +89,7 @@ function renderQueue() {
   });
   qs('#queue-list').innerHTML = reservations.length ? reservations.map((item, index) => `
     <div class="queue-item ${item.currentStatus === 'called' ? 'queue-item--called' : ''}">
-      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
+      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(item.menuName || settings?.serviceName || '')} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
       <span>${item.currentStatus === 'called' ? '지금 차례' : `앞 ${index}팀`}</span>
     </div>`).join('') : '<div class="empty-state">현재 대기 중인 팀이 없습니다.</div>';
   qs('#sync-state').textContent = `마지막 갱신 ${new Date().toLocaleTimeString('ko-KR')}`;
@@ -164,6 +166,12 @@ qs('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#login-error'), false);
   try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
+});
+qs('#google-login').addEventListener('click', async () => {
+  show(qs('#login-error'), false); setBusy(qs('#google-login'), true, 'Google 로그인 중…');
+  try { await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
+  finally { setBusy(qs('#google-login'), false); }
 });
 qs('#logout-button').addEventListener('click', () => signOut(auth));
 onAuthStateChanged(auth, (user) => {

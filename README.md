@@ -2,7 +2,8 @@
 
 2026 복성고 학술문화제 먹거리 부스 1곳의 예약·대기열·수령·운영 기록을 관리하는 웹 시스템입니다.
 
-- 고객: `index.html` — 사전 예약 신청, 예약/복구 조회, 조리 상태·완료 알림, 대기 상태 실시간 확인, 최초 기기 취소
+- 고객: `index.html` — 예약/복구 조회, 조리 상태·완료 알림, 대기 상태 실시간 확인, 최초 기기 취소
+- 예약 신청: `reserve.html` — 메뉴 선택 후 학번·이름으로 신규 예약
 - 직원: `staff.html` — 수령·미수령·보류·취소, 기록 되돌리기, 재료 소진
 - 1급 관리자: `admin.html` — 예약 접수 제어, 조리 시작·완료, 수령·미수령·보류·취소, 재료 소진, 행사 설정, 쉬는 시간, 직원 계정, 검색, CSV 3종
 - 데이터: Firebase 프로젝트 `hs-bokseong`의 named Firestore database `reservation`
@@ -16,7 +17,7 @@
 ## Firebase 준비
 
 1. `hs-bokseong` 프로젝트에 Firestore database ID `reservation`, location `asia-northeast3`를 production mode로 만듭니다.
-2. Firebase Authentication에서 직원용 Email/Password provider를 활성화합니다.
+2. Firebase Authentication에서 직원용 Email/Password와 Google provider를 활성화합니다.
 3. Authentication 승인 도메인에 `bokseong.github.io`를 추가합니다.
 4. 아래 명령으로 rules, indexes, Functions를 배포합니다.
 
@@ -26,7 +27,7 @@ npm.cmd --prefix functions install
 npx.cmd firebase-tools@15.36.0 deploy --only firestore:rules,firestore:indexes,functions --project hs-bokseong
 ```
 
-`github.jwastro09@gmail.com`으로 처음 관리자 로그인 시 `staffProfiles`에 bootstrap 1급 관리자 프로필이 자동 생성됩니다. 이후 직원 계정은 관리자 화면에서 발급합니다.
+`github.jwastro09@gmail.com`은 절대 관리자입니다. Google 또는 이메일로 처음 로그인하면 `staffProfiles`에 자동 등록되며, 다른 관리자가 강등하거나 비활성화할 수 없습니다. 이후 직원 계정은 관리자 화면에서 발급합니다.
 
 고객은 Firebase 계정을 만들지 않습니다. 최초 예약 기기에만 저장되는 256-bit 무작위 token을 Functions가 검증하며, 고객 화면은 3초 간격으로 서버 상태를 동기화합니다. 직원·관리자 대기열은 Firestore realtime listener로 갱신됩니다.
 

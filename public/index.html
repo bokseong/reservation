@@ -31,10 +31,12 @@
       <div class="section-heading">
         <span class="step-badge">01</span>
         <div>
-          <h2>예약 신청 또는 조회</h2>
-          <p>대표 학생의 학번과 이름을 입력한 뒤 원하는 기능을 선택하세요.</p>
+          <h2>예약 조회</h2>
+          <p>이미 신청한 예약을 학번과 이름으로 확인하세요.</p>
         </div>
       </div>
+      <a class="button button--primary button--large apply-page-link" href="./reserve.html">새 예약 신청하기</a>
+      <div class="form-divider"><span>기존 예약 조회</span></div>
       <form id="reservation-form" novalidate>
         <label>학번
           <input id="student-id" name="studentId" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="예: 2315" required>
@@ -43,11 +45,7 @@
         <label>이름
           <input id="student-name" name="studentName" autocomplete="name" maxlength="20" placeholder="예: 김복성" required>
         </label>
-        <div class="reservation-actions">
-          <button class="button button--primary button--large" type="submit" name="action" value="apply" id="apply-button">예약 신청</button>
-          <button class="button button--secondary button--large" type="submit" name="action" value="lookup" id="lookup-button">예약 조회</button>
-        </div>
-        <p id="apply-state" class="apply-state hidden" role="status"></p>
+        <button class="button button--secondary button--large" type="submit" id="lookup-button">예약 조회</button>
       </form>
       <div class="privacy-note">
         <strong>입력 정보</strong>

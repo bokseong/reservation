@@ -19,6 +19,7 @@ const SETTINGS_REF = db.doc('settings/event');
 const DEFAULT_SETTINGS = {
   eventName: '2026 복성고 학술문화제',
   serviceName: '먹거리 부스',
+  menus: ['떡볶이'],
   reservationStartAt: Timestamp.fromDate(new Date('2026-11-20T03:30:00.000Z')),
   reservationEndAt: Timestamp.fromDate(new Date('2026-11-20T07:30:00.000Z')),
   acceptingReservations: true,
@@ -41,7 +42,14 @@ function requireAuth(request) {
 
 async function ensureSettings() {
   const snapshot = await SETTINGS_REF.get();
-  if (snapshot.exists) return snapshot.data();
+  if (snapshot.exists) {
+    const settings = snapshot.data();
+    if (!Array.isArray(settings.menus) || !settings.menus.length) {
+      settings.menus = DEFAULT_SETTINGS.menus;
+      await SETTINGS_REF.set({ menus: settings.menus, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
+    return settings;
+  }
   await SETTINGS_REF.set(DEFAULT_SETTINGS);
   return (await SETTINGS_REF.get()).data();
 }
@@ -51,15 +59,23 @@ async function getProfile(request, role = 'staff') {
   const ref = db.doc(`staffProfiles/${user.uid}`);
   let snapshot = await ref.get();
   const email = String(user.token.email || '').toLowerCase();
-  if (!snapshot.exists && BOOTSTRAP_ADMINS.has(email)) {
-    await ref.set({ name: user.token.name || '총괄 관리자', email, role: 'admin', active: true, createdAt: FieldValue.serverTimestamp(), bootstrap: true });
+  const absoluteAdmin = BOOTSTRAP_ADMINS.has(email);
+  if (absoluteAdmin && (!snapshot.exists || snapshot.data().role !== 'admin' || snapshot.data().active !== true)) {
+    await ref.set({ name: user.token.name || snapshot.data()?.name || '총괄 관리자', email, role: 'admin', active: true, createdAt: snapshot.data()?.createdAt || FieldValue.serverTimestamp(), bootstrap: true, absoluteAdmin: true }, { merge: true });
     snapshot = await ref.get();
   }
   if (!snapshot.exists || snapshot.data().active !== true) throw new HttpsError('permission-denied', '활성화된 직원 계정이 아닙니다.');
   const profile = snapshot.data();
   if (!['staff', 'admin'].includes(profile.role)) throw new HttpsError('permission-denied', '직원 권한이 없습니다.');
   if (role === 'admin' && profile.role !== 'admin') throw new HttpsError('permission-denied', '1급 관리자만 사용할 수 있습니다.');
-  return { uid: user.uid, email, ...profile };
+  return { uid: user.uid, email, ...profile, absoluteAdmin };
+}
+
+function normalizeMenus(value, fallback = []) {
+  const input = Array.isArray(value) ? value : fallback;
+  const menus = [...new Set(input.map((item) => String(item || '').trim()).filter(Boolean))];
+  if (!menus.length || menus.length > 20 || menus.some((item) => item.length > 30)) throw new HttpsError('invalid-argument', '메뉴는 1–20개, 메뉴 이름은 30자 이하로 입력해 주세요.');
+  return menus;
 }
 
 function parseOperationId(value) {
@@ -78,6 +94,7 @@ function publicReservation(id, data) {
     reservationNo: data.reservationNo,
     studentIdNormalized: data.studentIdNormalized,
     studentName: data.studentName,
+    menuName: data.menuName || null,
     currentStatus: data.currentStatus,
     teamsAhead: data.teamsAhead ?? 0,
     holdCount: data.holdCount ?? 0,
@@ -168,6 +185,7 @@ export const getPublicSettings = onCall(async () => {
   return {
     eventName: settings.eventName,
     serviceName: settings.serviceName,
+    menus: Array.isArray(settings.menus) && settings.menus.length ? settings.menus : DEFAULT_SETTINGS.menus,
     acceptingReservations: settings.acceptingReservations === true,
     acceptingNow: settings.acceptingReservations === true && now <= end,
     reservationStartAt: settings.reservationStartAt?.toDate?.().toISOString(),
@@ -187,6 +205,7 @@ export const createReservation = onCall(async (request) => {
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const token = String(request.data?.customerToken || '');
+  const menuName = String(request.data?.menuName || '').trim();
   if (!/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '고객 token 형식이 올바르지 않습니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const reservationNo = await allocateNumber('reservation', 'R');
@@ -199,6 +218,8 @@ export const createReservation = onCall(async (request) => {
     const settingsSnapshot = await transaction.get(SETTINGS_REF);
     if (!settingsSnapshot.exists) throw new HttpsError('failed-precondition', '행사 설정이 아직 준비되지 않았습니다.');
     const settings = settingsSnapshot.data();
+    const menus = normalizeMenus(settings.menus, DEFAULT_SETTINGS.menus);
+    if (!menus.includes(menuName)) throw new HttpsError('invalid-argument', '선택한 메뉴를 찾을 수 없습니다.');
     const now = Date.now();
     if (settings.acceptingReservations !== true || now > settings.reservationEndAt.toMillis()) {
       throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.', { canLookup: true });
@@ -213,7 +234,7 @@ export const createReservation = onCall(async (request) => {
     const queueOrderNumber = Number(queueNo.split('-')[1]);
     const ref = db.collection('reservations').doc();
     const reservation = {
-      reservationNo, studentIdNormalized: studentId, studentName,
+      reservationNo, studentIdNormalized: studentId, studentName, menuName,
       createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: active.size,
       estimatedWaitMinutes: null, test: false,
       currentStatus: active.empty ? 'called' : 'waiting', queueOrder: queueOrderNumber, teamsAhead: active.size,
@@ -284,7 +305,7 @@ export const cancelOwnReservation = onCall(async (request) => {
 export const getStaffSession = onCall(async (request) => {
   const profile = await getProfile(request);
   await ensureSettings();
-  return { profile: { uid: profile.uid, name: profile.name, role: profile.role, active: profile.active } };
+  return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true } };
 });
 
 export const staffAction = onCall(async (request) => {
@@ -399,7 +420,7 @@ export const updateSettings = onCall(async (request) => {
   try { serviceName = normalizeName(data.serviceName); eventName = String(data.eventName || '').trim(); } catch (error) { throw new HttpsError('invalid-argument', error.message); }
   if (eventName.length < 2 || eventName.length > 50) throw new HttpsError('invalid-argument', '행사 이름은 2–50자로 입력해 주세요.');
   const updates = {
-    eventName, serviceName, notice: String(data.notice || '').trim().slice(0, 100),
+    eventName, serviceName, menus: normalizeMenus(data.menus, [serviceName]), notice: String(data.notice || '').trim().slice(0, 100),
     reservationStartAt: Timestamp.fromDate(start), reservationEndAt: Timestamp.fromDate(end), acceptingReservations: data.acceptingReservations === true,
     noShowGraceSeconds: Math.max(10, Math.min(600, Number(data.noShowGraceSeconds) || 60)),
     noShowListSeconds: Math.max(30, Math.min(3600, Number(data.noShowListSeconds) || 180)),
@@ -451,6 +472,9 @@ export const updateStaffProfile = onCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const uid = String(request.data?.uid || '');
   if (!uid) throw new HttpsError('invalid-argument', '직원 UID가 필요합니다.');
+  const target = await db.doc(`staffProfiles/${uid}`).get();
+  const targetEmail = String(target.data()?.email || '').toLowerCase();
+  if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role === 'staff' || request.data.active === false)) throw new HttpsError('failed-precondition', '절대 관리자는 강등하거나 비활성화할 수 없습니다.');
   const updates = { updatedAt: FieldValue.serverTimestamp() };
   if (request.data.role != null) updates.role = request.data.role === 'admin' ? 'admin' : 'staff';
   if (request.data.active != null) updates.active = request.data.active === true;
@@ -478,13 +502,13 @@ export const exportCsv = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async
   }
   if (type === 'summary') {
     const snapshot = await db.collection('reservations').orderBy('createdAt').get();
-    const headers = ['예약번호', '학번', '이름', '신청시각', '신청 때 앞 팀 수', '예상 대기(분)', '수령시각', '최종상태', '걸린 시간(분)', '보류 횟수', '늦음(초)', '다시조회 횟수', '테스트'];
+    const headers = ['예약번호', '학번', '이름', '메뉴', '신청시각', '신청 때 앞 팀 수', '예상 대기(분)', '수령시각', '최종상태', '걸린 시간(분)', '보류 횟수', '늦음(초)', '다시조회 횟수', '테스트'];
     const rows = await Promise.all(snapshot.docs.map(async (item) => {
       const value = item.data();
       const events = await db.collection('reservationEvents').where('reservationId', '==', item.id).get();
       const pickup = events.docs.map((entry) => entry.data()).find((entry) => entry.type === 'pickup' && entry.lateSeconds != null);
       const duration = value.pickupAt && value.createdAt ? ((value.pickupAt.toMillis() - value.createdAt.toMillis()) / 60000).toFixed(1) : '';
-      return [value.reservationNo, value.studentIdNormalized, value.studentName, koreaDate(value.createdAt), value.queueIndexAtCreation, value.estimatedWaitMinutes, koreaDate(value.pickupAt), value.currentStatus, duration, value.holdCount, pickup?.lateSeconds ?? '', value.relookupCount || 0, value.test ? '예' : '아니오'];
+      return [value.reservationNo, value.studentIdNormalized, value.studentName, value.menuName || '', koreaDate(value.createdAt), value.queueIndexAtCreation, value.estimatedWaitMinutes, koreaDate(value.pickupAt), value.currentStatus, duration, value.holdCount, pickup?.lateSeconds ?? '', value.relookupCount || 0, value.test ? '예' : '아니오'];
     }));
     return { filename: `요약_${date}.csv`, content: csvRows(headers, rows) };
   }

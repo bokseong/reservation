@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="description" content="복성고 학술문화제 먹거리 예약 신청">
+  <title>예약 신청 · 복성고 먹거리</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body class="customer-page">
+  <main class="shell shell--narrow">
+    <header class="brand-header customer-header">
+      <div><span class="eyebrow">RESERVATION</span><h1>예약 신청</h1><p id="reserve-subtitle">메뉴와 대표 학생 정보를 입력하세요.</p></div>
+      <a class="button button--secondary admin-menu-button" href="./index.html">예약 조회</a>
+    </header>
+
+    <div id="reserve-notice" class="notice hidden" role="status"></div>
+    <section id="reserve-loading" class="card centered"><div class="spinner" aria-label="불러오는 중"></div><p>예약 메뉴를 불러오고 있어요.</p></section>
+
+    <section id="reserve-card" class="card hidden">
+      <form id="reserve-form" novalidate>
+        <fieldset class="menu-fieldset">
+          <legend><span class="step-badge">01</span><span><strong>메뉴 선택</strong><small>예약할 메뉴를 하나 선택하세요.</small></span></legend>
+          <div id="menu-options" class="menu-options"></div>
+        </fieldset>
+        <div class="section-heading compact-heading"><span class="step-badge">02</span><div><h2>대표 학생 정보</h2><p>예약 확인에 사용할 학번과 이름입니다.</p></div></div>
+        <label>학번<input id="reserve-student-id" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="예: 2315" required><small>4자리 학번 · 5자리 입력은 자동 변환</small></label>
+        <label>이름<input id="reserve-student-name" autocomplete="name" maxlength="20" placeholder="예: 김복성" required></label>
+        <button id="reserve-submit" class="button button--primary button--large" type="submit">예약 신청 완료</button>
+        <p id="reserve-state" class="apply-state hidden" role="status"></p>
+      </form>
+      <div class="privacy-note"><strong>입력 정보</strong><span>선택한 메뉴, 학번, 이름은 예약 운영과 행사 후 분석에 사용합니다.</span></div>
+    </section>
+    <div id="toast" class="toast hidden" role="alert"></div>
+  </main>
+  <script type="module" src="./js/reserve.js"></script>
+</body>
+</html>

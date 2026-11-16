@@ -1,5 +1,5 @@
 import { auth, appCheck, db, functions } from './firebase-config.js';
-import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
@@ -20,6 +20,8 @@ let reservations = [];
 let staff = [];
 let events = [];
 let unsubscribers = [];
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 async function loadAdmin() {
   try {
@@ -73,7 +75,7 @@ function renderOperations() {
   const currentLabels = { preparing: '조리 중', ready: '조리 완료 · 수령 대기', called: '지금 차례', waiting: '지금 차례', held: '보류 후 차례' };
   qs('#admin-current-label').textContent = current ? (currentLabels[current.currentStatus] || statusText(current.currentStatus)) : '지금 차례';
   qs('#admin-current-reservation').textContent = current?.reservationNo || '대기 팀 없음';
-  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName}` : '';
+  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}` : '';
 
   qsa('[data-admin-action]').forEach((button) => {
     const action = button.dataset.adminAction;
@@ -91,20 +93,26 @@ function renderOperations() {
 
   qs('#admin-queue-list').innerHTML = queue.length ? queue.map((item, index) => `
     <div class="queue-item ${index === 0 ? 'queue-item--called' : ''}">
-      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
+      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(item.menuName || settings.serviceName || '')} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
       <span>${index === 0 ? statusText(item.currentStatus) : `앞 ${index}팀`}</span>
     </div>`).join('') : '<div class="empty-state">현재 대기 중인 팀이 없습니다.</div>';
 }
 
 function renderReservations() {
   const keyword = qs('#reservation-search').value.trim().toLowerCase();
-  const filtered = reservations.filter((item) => [item.reservationNo, item.studentIdNormalized, item.studentName].some((value) => String(value || '').toLowerCase().includes(keyword)));
-  qs('#admin-reservations').innerHTML = filtered.slice(0, 100).map((item) => `<div class="data-row"><div><strong>${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div></div>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
+  const menu = qs('#reservation-menu-filter').value;
+  const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  qs('#admin-reservations').innerHTML = filtered.slice(0, 100).map((item) => `<div class="data-row"><div><strong>${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(item.menuName || settings.serviceName || '')} · ${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div></div>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
 }
 
 function renderSettings() {
   const form = qs('#settings-form');
   for (const name of ['eventName', 'serviceName', 'notice', 'noShowGraceSeconds', 'noShowListSeconds', 'maxHoldCount']) if (form.elements[name]) form.elements[name].value = settings[name] ?? '';
+  form.elements.menus.value = (Array.isArray(settings.menus) ? settings.menus : [settings.serviceName || '']).filter(Boolean).join('\n');
+  const currentFilter = qs('#reservation-menu-filter').value;
+  const menus = Array.isArray(settings.menus) ? settings.menus : [];
+  qs('#reservation-menu-filter').innerHTML = '<option value="">전체 메뉴</option>' + menus.map((menu) => `<option value="${escapeHtml(menu)}">${escapeHtml(menu)}</option>`).join('');
+  if (menus.includes(currentFilter)) qs('#reservation-menu-filter').value = currentFilter;
   form.elements.reservationStartAt.value = toDateTimeLocal(settings.reservationStartAt);
   form.elements.reservationEndAt.value = toDateTimeLocal(settings.reservationEndAt);
   form.elements.acceptingReservations.checked = settings.acceptingReservations === true;
@@ -114,7 +122,10 @@ function renderSettings() {
 }
 
 function renderStaff() {
-  qs('#staff-list').innerHTML = staff.map((item) => `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${item.role === 'admin' ? '1급 관리자' : '2급 직원'} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions"><button data-staff-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button></div></div>`).join('') || '<div class="empty-state">직원이 없습니다.</div>';
+  qs('#staff-list').innerHTML = staff.map((item) => {
+    const absolute = item.absoluteAdmin === true || String(item.email || '').toLowerCase() === 'github.jwastro09@gmail.com';
+    return `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 직원'} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-staff-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></div>`;
+  }).join('') || '<div class="empty-state">직원이 없습니다.</div>';
 }
 
 qsa('[data-tab]').forEach((button) => button.addEventListener('click', () => {
@@ -122,6 +133,7 @@ qsa('[data-tab]').forEach((button) => button.addEventListener('click', () => {
   qsa('[data-panel]').forEach((panel) => show(panel, panel.dataset.panel === button.dataset.tab));
 }));
 qs('#reservation-search').addEventListener('input', renderReservations);
+qs('#reservation-menu-filter').addEventListener('change', renderReservations);
 
 qsa('[data-admin-action]').forEach((button) => button.addEventListener('click', async () => {
   if (!button.dataset.reservationId) return;
@@ -201,6 +213,7 @@ qs('#settings-form').addEventListener('submit', async (event) => {
   try {
     await updateSettings({
       eventName: form.get('eventName'), serviceName: form.get('serviceName'), notice: form.get('notice'),
+      menus: String(form.get('menus') || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
       reservationStartAt: form.get('reservationStartAt'), reservationEndAt: form.get('reservationEndAt'),
       noShowGraceSeconds: Number(form.get('noShowGraceSeconds')), noShowListSeconds: Number(form.get('noShowListSeconds')),
       maxHoldCount: Number(form.get('maxHoldCount')), acceptingReservations: event.currentTarget.elements.acceptingReservations.checked,
@@ -248,6 +261,12 @@ qs('#admin-login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#admin-login-error'), false);
   try { await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
+});
+qs('#admin-google-login').addEventListener('click', async () => {
+  show(qs('#admin-login-error'), false); setBusy(qs('#admin-google-login'), true, 'Google 로그인 중…');
+  try { await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
+  finally { setBusy(qs('#admin-google-login'), false); }
 });
 qs('#admin-logout').addEventListener('click', () => signOut(auth));
 onAuthStateChanged(auth, (user) => {

@@ -1,9 +1,8 @@
 import { functions } from './firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
-import { qs, show, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
+import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
-const createReservation = httpsCallable(functions, 'createReservation');
 const lookupReservation = httpsCallable(functions, 'lookupReservation');
 const getCustomerReservation = httpsCallable(functions, 'getCustomerReservation');
 const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
@@ -60,11 +59,6 @@ function renderSettings() {
       : `부스가 잠시 쉬는 중이에요 · ${settings.breakReason} · 예정 ${end.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`;
   }
   show(breakNotice, Boolean(settings.breakActive));
-  const applyButton = qs('#apply-button');
-  const applyState = qs('#apply-state');
-  applyButton.disabled = !settings.acceptingNow;
-  applyState.textContent = settings.acceptingNow ? '' : '현재 새 예약 신청은 마감되었지만 기존 예약 조회는 가능합니다.';
-  show(applyState, !settings.acceptingNow);
 }
 
 function showForm() {
@@ -102,7 +96,7 @@ function renderReservation(reservation, recovered) {
   show(qs('#form-view'), false);
   show(qs('#reservation-view'), true);
   qs('#reservation-no').textContent = reservation.reservationNo;
-  qs('#reservation-owner').textContent = `${reservation.studentIdNormalized} ${reservation.studentName} · ${settings?.serviceName || ''}`;
+  qs('#reservation-owner').textContent = `${reservation.studentIdNormalized} ${reservation.studentName} · ${reservation.menuName || settings?.serviceName || ''}`;
   const status = reservation.currentStatus;
   const panel = qs('#status-panel');
   const label = qs('#status-label');
@@ -151,33 +145,16 @@ function renderReservation(reservation, recovered) {
 
 qs('#reservation-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const action = event.submitter?.value === 'lookup' ? 'lookup' : 'apply';
-  const button = action === 'lookup' ? qs('#lookup-button') : qs('#apply-button');
+  const button = qs('#lookup-button');
   const studentId = qs('#student-id').value.trim();
   const studentName = qs('#student-name').value.trim();
   setBusy(button, true);
   try {
-    if (action === 'lookup') {
-      const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
-      saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
-      renderReservation(response.data.reservation, true);
-      startRecoveredPolling();
-      showToast('예약 정보를 불러왔어요.');
-      return;
-    }
-    const token = customerToken();
-    const response = await createReservation({ studentId, studentName, customerToken: token, operationId: operationId() });
-    if (response.data.created) {
-      saveSession({ reservationId: response.data.reservation.id, token });
-      renderReservation(response.data.reservation, false);
-      startTokenPolling();
-      showToast(`${response.data.reservation.reservationNo} 예약이 완료됐어요.`);
-    } else {
-      saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
-      renderReservation(response.data.reservation, true);
-      startRecoveredPolling();
-      showToast('기존 예약을 보기 전용으로 불러왔어요.');
-    }
+    const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
+    saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
+    renderReservation(response.data.reservation, true);
+    startRecoveredPolling();
+    showToast('예약 정보를 불러왔어요.');
   } catch (error) { showToast(friendlyError(error), 5000); }
   finally { setBusy(button, false); }
 });
