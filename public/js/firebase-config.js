@@ -1,4 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-app-check.js';
 import { getAuth } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
 import { getFunctions } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-functions.js';
@@ -14,6 +15,10 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig, 'reservation-web');
+export const appCheck = initializeAppCheck(app, {
+  provider: new ReCaptchaEnterpriseProvider('6LeTORYuAAAAAMvEjJ8cbklms8rWzp9TTzJXnS1d'),
+  isTokenAutoRefreshEnabled: true
+});
 export const auth = getAuth(app);
 export const db = getFirestore(app, 'reservation');
 export const functions = getFunctions(app, 'asia-northeast3');
