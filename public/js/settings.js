@@ -1,6 +1,5 @@
-import { auth, appCheck, db, functions } from './firebase.js';
+import { auth, db, functions, ensureAppCheck } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
@@ -90,7 +89,7 @@ qsa('[data-settings-export]').forEach((button) => button.addEventListener('click
   catch (error) { showToast(friendlyError(error), 5000); } finally { setBusy(button, false); }
 }));
 
-qs('#settings-login-form').addEventListener('submit', async (event) => { event.preventDefault(); show(qs('#settings-login-error'), false); try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#settings-email').value.trim(), qs('#settings-password').value); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } });
-qs('#settings-google-login').addEventListener('click', async () => { show(qs('#settings-login-error'), false); setBusy(qs('#settings-google-login'), true, 'Google 로그인 중…'); try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } finally { setBusy(qs('#settings-google-login'), false); } });
+qs('#settings-login-form').addEventListener('submit', async (event) => { event.preventDefault(); show(qs('#settings-login-error'), false); try { await ensureAppCheck(true); await signInWithEmailAndPassword(auth, qs('#settings-email').value.trim(), qs('#settings-password').value); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } });
+qs('#settings-google-login').addEventListener('click', async () => { show(qs('#settings-login-error'), false); setBusy(qs('#settings-google-login'), true, 'Google 로그인 중…'); try { await ensureAppCheck(true); await signInWithPopup(auth, googleProvider); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } finally { setBusy(qs('#settings-google-login'), false); } });
 qs('#settings-logout').addEventListener('click', () => signOut(auth));
-onAuthStateChanged(auth, (user) => { unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = []; if (user && !user.isAnonymous) loadSettingsPage(); else { show(qs('#settings-login'), true); show(qs('#settings-view'), false); } });
+onAuthStateChanged(auth, async (user) => { unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = []; if (user && !user.isAnonymous) { try { await ensureAppCheck(); await loadSettingsPage(); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } } else { show(qs('#settings-login'), true); show(qs('#settings-view'), false); } });

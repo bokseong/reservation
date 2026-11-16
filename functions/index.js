@@ -10,6 +10,11 @@ import { availableMenuItems, findMenu } from './menu.js';
 if (!getApps().length) initializeApp();
 setGlobalOptions({ region: 'asia-northeast3', maxInstances: 20, timeoutSeconds: 60, invoker: 'public' });
 
+function checkedCall(options, handler) {
+  if (typeof options === 'function') return onCall({ enforceAppCheck: true }, options);
+  return onCall({ ...options, enforceAppCheck: true }, handler);
+}
+
 const db = getFirestore('reservation');
 const auth = getAuth();
 const QUEUED = ['waiting', 'called', 'held'];
@@ -165,7 +170,7 @@ async function writeOperationEvent(data) {
   await db.collection('operationEvents').add({ ...data, occurredAt: FieldValue.serverTimestamp() });
 }
 
-export const getPublicSettings = onCall(async () => {
+export const getPublicSettings = checkedCall(async () => {
   const settings = await ensureSettings();
   const now = Date.now();
   const end = settings.reservationEndAt?.toMillis?.() || Number.MAX_SAFE_INTEGER;
@@ -186,7 +191,7 @@ export const getPublicSettings = onCall(async () => {
   };
 });
 
-export const createReservation = onCall(async (request) => {
+export const createReservation = checkedCall(async (request) => {
   let studentId;
   let studentName;
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
@@ -239,7 +244,7 @@ export const createReservation = onCall(async (request) => {
   return result;
 });
 
-export const lookupReservation = onCall(async (request) => {
+export const lookupReservation = checkedCall(async (request) => {
   let studentId;
   let studentName;
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
@@ -259,7 +264,7 @@ export const lookupReservation = onCall(async (request) => {
   return { reservation: publicReservation(document.id, document.data()), recoveredViewOnly: true };
 });
 
-export const getCustomerReservation = onCall(async (request) => {
+export const getCustomerReservation = checkedCall(async (request) => {
   const reservationId = String(request.data?.reservationId || '');
   const token = String(request.data?.customerToken || '');
   if (!reservationId || !/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '예약 token이 올바르지 않습니다.');
@@ -269,7 +274,7 @@ export const getCustomerReservation = onCall(async (request) => {
   return { reservation: publicReservation(snapshot.id, snapshot.data()) };
 });
 
-export const cancelOwnReservation = onCall(async (request) => {
+export const cancelOwnReservation = checkedCall(async (request) => {
   const id = String(request.data?.reservationId || '');
   const token = String(request.data?.customerToken || '');
   const operationId = parseOperationId(request.data?.operationId);
@@ -289,13 +294,13 @@ export const cancelOwnReservation = onCall(async (request) => {
   return { ok: true };
 });
 
-export const getStaffSession = onCall(async (request) => {
+export const getStaffSession = checkedCall(async (request) => {
   const profile = await getProfile(request);
   await ensureSettings();
   return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true } };
 });
 
-export const staffAction = onCall(async (request) => {
+export const staffAction = checkedCall(async (request) => {
   const profile = await getProfile(request);
   const reservationId = String(request.data?.reservationId || '');
   const action = String(request.data?.action || '');
@@ -349,7 +354,7 @@ export const staffAction = onCall(async (request) => {
   return { ok: true };
 });
 
-export const undoReservationEvent = onCall(async (request) => {
+export const undoReservationEvent = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const eventId = String(request.data?.eventId || '');
   const operationId = parseOperationId(request.data?.operationId);
@@ -372,7 +377,7 @@ export const undoReservationEvent = onCall(async (request) => {
   return { ok: true };
 });
 
-export const setSoldOut = onCall(async (request) => {
+export const setSoldOut = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const mode = String(request.data?.mode || '');
   if (!['stop_new', 'cancel_waiting', 'reopen'].includes(mode)) throw new HttpsError('invalid-argument', '지원하지 않는 모드입니다.');
@@ -397,7 +402,7 @@ export const setSoldOut = onCall(async (request) => {
   return { ok: true, cancelled };
 });
 
-export const updateSettings = onCall(async (request) => {
+export const updateSettings = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const data = request.data || {};
   const start = new Date(data.reservationStartAt);
@@ -419,7 +424,7 @@ export const updateSettings = onCall(async (request) => {
   return { ok: true };
 });
 
-export const manageBreak = onCall(async (request) => {
+export const manageBreak = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const action = String(request.data?.action || '');
   const operationId = parseOperationId(request.data?.operationId);
@@ -443,7 +448,7 @@ export const manageBreak = onCall(async (request) => {
   return { ok: true };
 });
 
-export const createStaffUser = onCall(async (request) => {
+export const createStaffUser = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const email = String(request.data?.email || '').trim().toLowerCase();
   const password = String(request.data?.password || '');
@@ -456,7 +461,7 @@ export const createStaffUser = onCall(async (request) => {
   return { uid: user.uid };
 });
 
-export const updateStaffProfile = onCall(async (request) => {
+export const updateStaffProfile = checkedCall(async (request) => {
   const profile = await getProfile(request, 'admin');
   const uid = String(request.data?.uid || '');
   if (!uid) throw new HttpsError('invalid-argument', '직원 UID가 필요합니다.');
@@ -472,7 +477,7 @@ export const updateStaffProfile = onCall(async (request) => {
   return { ok: true };
 });
 
-export const exportCsv = onCall({ timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
+export const exportCsv = checkedCall({ timeoutSeconds: 120, memory: '512MiB' }, async (request) => {
   await getProfile(request, 'admin');
   const type = String(request.data?.type || '');
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());

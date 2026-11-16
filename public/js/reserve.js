@@ -1,4 +1,4 @@
-import { functions } from './firebase.js';
+import { functions, ensureAppCheck } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, escapeHtml, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
 import { availableMenuItems, formatPrice } from './menu.js';
@@ -33,6 +33,7 @@ function updateSummary() {
 
 async function initialize() {
   try {
+    await ensureAppCheck();
     const response = await getPublicSettings();
     settings = response.data;
     qs('#reserve-subtitle').textContent = `${settings.eventName || '복성고 학술문화제'} · ${settings.serviceName || '먹거리 부스'}`;

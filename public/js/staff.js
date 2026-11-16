@@ -1,6 +1,5 @@
-import { auth, appCheck, db, functions } from './firebase.js';
+import { auth, db, functions, ensureAppCheck } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, where, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, setBusy } from './shared.js';
@@ -166,19 +165,19 @@ qsa('[data-mode]').forEach((button) => button.addEventListener('click', async ()
 qsa('[data-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 qs('#login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#login-error'), false);
-  try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
+  try { await ensureAppCheck(true); await signInWithEmailAndPassword(auth, qs('#email').value.trim(), qs('#password').value); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
 });
 qs('#google-login').addEventListener('click', async () => {
   show(qs('#login-error'), false); setBusy(qs('#google-login'), true, 'Google 로그인 중…');
-  try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  try { await ensureAppCheck(true); await signInWithPopup(auth, googleProvider); }
   catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); }
   finally { setBusy(qs('#google-login'), false); }
 });
 qs('#logout-button').addEventListener('click', () => signOut(auth));
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   resetSubscriptions();
-  if (user && !user.isAnonymous) loadStaff(user);
+  if (user && !user.isAnonymous) { try { await ensureAppCheck(); await loadStaff(user); } catch (error) { qs('#login-error').textContent = friendlyError(error); show(qs('#login-error'), true); } }
   else { profile = null; show(qs('#login-view'), true); show(qs('#staff-view'), false); }
 });
 

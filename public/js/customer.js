@@ -1,4 +1,4 @@
-import { functions } from './firebase.js';
+import { functions, ensureAppCheck } from './firebase.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
@@ -25,6 +25,7 @@ function saveSession(value) {
 
 async function initialize() {
   try {
+    await ensureAppCheck();
     await loadSettings();
     if (session?.reservationId && session?.token) startTokenPolling();
     else if (session?.studentId && session?.studentName) startRecoveredPolling();

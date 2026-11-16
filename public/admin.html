@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111111">
   <title>관리자 운영 · 복성고 예약</title>
-  <link rel="stylesheet" href="./css/app.css?v=20261116-3">
+  <link rel="stylesheet" href="./css/app.css?v=20261116-4">
 </head>
 <body class="admin-page">
   <main class="shell shell--wide">
@@ -66,6 +66,10 @@
   </main>
   <dialog id="admin-list-dialog" class="modal modal--wide"><div class="modal-shell"><div class="section-row"><h2 id="admin-dialog-title">목록</h2><button class="icon-button" data-admin-close>×</button></div><div id="admin-dialog-content"></div></div></dialog>
   <dialog id="admin-sold-out-dialog" class="modal"><div class="modal-shell"><div class="section-row"><h2>재료 소진</h2><button class="icon-button" data-admin-close>×</button></div><p id="admin-sold-out-summary"></p><button data-admin-mode="stop_new" class="choice-button"><strong>새 예약만 막기</strong><span>기존 대기 팀은 그대로 운영합니다.</span></button><button data-admin-mode="cancel_waiting" class="choice-button choice-button--danger"><strong>대기 팀도 모두 취소</strong><span>대기 예약에 재료 소진 사유를 기록합니다.</span></button></div></dialog>
-  <script type="module" src="./js/admin.js?v=20261116-3"></script>
+  <footer class="site-footer">
+    <p>이 사이트는 reCAPTCHA로 보호되며 Google <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">개인정보처리방침</a> 및 <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer">서비스 약관</a>이 적용됩니다.</p>
+    <p>© 2026 복성고 학술문화제. All rights reserved.</p>
+  </footer>
+  <script type="module" src="./js/admin.js?v=20261116-4"></script>
 </body>
 </html>

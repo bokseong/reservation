@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
+import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { initializeAuth, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { getFunctions } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
@@ -19,15 +19,18 @@ export const firebaseConfig = {
 
 // App Check를 사용할 때 Firebase Console에서 발급한 reCAPTCHA Enterprise 사이트 키를 입력하세요.
 // 빈 문자열이면 App Check 초기화를 건너뜁니다.
-export const recaptchaEnterpriseSiteKey = '';
+export const recaptchaEnterpriseSiteKey = '6LedkSIuAAAAAHN8Rh5ZkpHmF5BKpbjsiwZIBJkF';
 
 export const app = initializeApp(firebaseConfig);
-export const appCheck = recaptchaEnterpriseSiteKey
-  ? initializeAppCheck(app, {
-      provider: new ReCaptchaEnterpriseProvider(recaptchaEnterpriseSiteKey),
-      isTokenAutoRefreshEnabled: true
-    })
-  : null;
+export const appCheck = initializeAppCheck(app, {
+  provider: new ReCaptchaEnterpriseProvider(recaptchaEnterpriseSiteKey),
+  isTokenAutoRefreshEnabled: true
+});
+const initialAppCheckToken = getToken(appCheck, false);
+
+export function ensureAppCheck(forceRefresh = false) {
+  return forceRefresh ? getToken(appCheck, true) : initialAppCheckToken;
+}
 export const auth = initializeAuth(app, { persistence: browserLocalPersistence });
 export const db = getFirestore(app, 'reservation');
 export const functions = getFunctions(app, 'asia-northeast3');

@@ -32,7 +32,7 @@ npx.cmd firebase-tools@15.36.0 deploy --only firestore:rules,firestore:indexes,f
 - 메뉴: `public/js/menu.js`의 `MENU_ITEMS`에서 `id`, `name`, `price`, `description`, `emoji`, `available`을 수정합니다.
 - 메뉴 변경 후 `npm.cmd run sync:menu`를 실행하면 Functions 검증용 메뉴 파일이 갱신됩니다. `npm test`, `npm run check`, `npm run deploy:backend`는 이 동기화를 자동 실행합니다.
 - Firebase Web SDK: `public/js/firebase.js`의 `firebaseConfig`에 Firebase Console의 Web App 설정을 입력합니다.
-- App Check를 사용할 경우 같은 파일의 `recaptchaEnterpriseSiteKey`에 reCAPTCHA Enterprise 사이트 키를 입력합니다. 빈 문자열이면 App Check를 사용하지 않습니다.
+- App Check는 `bokseong.github.io`가 허용된 reCAPTCHA Enterprise(Fraud Defense) 사이트 키로 모든 페이지에서 초기화됩니다. callable Functions도 App Check token을 강제 검증합니다.
 
 `github.jwastro09@gmail.com`은 절대 관리자입니다. Google 또는 이메일로 처음 로그인하면 `staffProfiles`에 자동 등록되며, 다른 관리자가 강등하거나 비활성화할 수 없습니다. 이후 직원 계정은 관리자 화면에서 발급합니다.
 

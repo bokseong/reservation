@@ -1,6 +1,5 @@
-import { auth, appCheck, db, functions } from './firebase.js';
+import { auth, db, functions, ensureAppCheck } from './firebase.js';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
 import { collection, doc, onSnapshot, orderBy, query, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
@@ -262,19 +261,19 @@ qsa('[data-export]').forEach((button) => button.addEventListener('click', async 
 
 qs('#admin-login-form').addEventListener('submit', async (event) => {
   event.preventDefault(); show(qs('#admin-login-error'), false);
-  try { if (appCheck) await getToken(appCheck, true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
+  try { await ensureAppCheck(true); await signInWithEmailAndPassword(auth, qs('#admin-email').value.trim(), qs('#admin-password').value); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
 });
 qs('#admin-google-login').addEventListener('click', async () => {
   show(qs('#admin-login-error'), false); setBusy(qs('#admin-google-login'), true, 'Google 로그인 중…');
-  try { if (appCheck) await getToken(appCheck, true); await signInWithPopup(auth, googleProvider); }
+  try { await ensureAppCheck(true); await signInWithPopup(auth, googleProvider); }
   catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); }
   finally { setBusy(qs('#admin-google-login'), false); }
 });
 qs('#admin-logout').addEventListener('click', () => signOut(auth));
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = [];
-  if (user && !user.isAnonymous) loadAdmin();
+  if (user && !user.isAnonymous) { try { await ensureAppCheck(); await loadAdmin(); } catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); } }
   else { profile = null; show(qs('#admin-login'), true); show(qs('#admin-view'), false); }
 });
 
