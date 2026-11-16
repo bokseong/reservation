@@ -8,29 +8,61 @@
   <title>예약 신청 · 복성고 먹거리</title>
   <link rel="stylesheet" href="./css/app.css">
 </head>
-<body class="customer-page">
-  <main class="shell shell--narrow">
-    <header class="brand-header customer-header">
-      <div><span class="eyebrow">RESERVATION</span><h1>예약 신청</h1><p id="reserve-subtitle">메뉴와 대표 학생 정보를 입력하세요.</p></div>
-      <a class="button button--secondary admin-menu-button" href="./index.html">예약 조회</a>
+<body class="customer-page kiosk-page">
+  <main class="shell kiosk-shell">
+    <header class="kiosk-header">
+      <div><span class="eyebrow">BOKSEONG FOOD KIOSK</span><h1>먹거리 예약</h1><p id="reserve-subtitle">메뉴를 고르고 예약하세요.</p></div>
+      <a class="button button--secondary kiosk-exit" href="./index.html">예약 조회·나가기</a>
     </header>
 
     <div id="reserve-notice" class="notice hidden" role="status"></div>
     <section id="reserve-loading" class="card centered"><div class="spinner" aria-label="불러오는 중"></div><p>예약 메뉴를 불러오고 있어요.</p></section>
 
-    <section id="reserve-card" class="card hidden">
-      <form id="reserve-form" novalidate>
-        <fieldset class="menu-fieldset">
-          <legend><span class="step-badge">01</span><span><strong>메뉴 선택</strong><small>예약할 메뉴를 하나 선택하세요.</small></span></legend>
-          <div id="menu-options" class="menu-options"></div>
-        </fieldset>
-        <div class="section-heading compact-heading"><span class="step-badge">02</span><div><h2>대표 학생 정보</h2><p>예약 확인에 사용할 학번과 이름입니다.</p></div></div>
-        <label>학번<input id="reserve-student-id" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="예: 2315" required><small>4자리 학번 · 5자리 입력은 자동 변환</small></label>
-        <label>이름<input id="reserve-student-name" autocomplete="name" maxlength="20" placeholder="예: 김복성" required></label>
-        <button id="reserve-submit" class="button button--primary button--large" type="submit">예약 신청 완료</button>
-        <p id="reserve-state" class="apply-state hidden" role="status"></p>
+    <section id="reserve-card" class="hidden">
+      <ol class="kiosk-progress" aria-label="예약 단계">
+        <li data-progress="1" class="active"><b>1</b><span>메뉴 선택</span></li>
+        <li data-progress="2"><b>2</b><span>정보 입력</span></li>
+        <li data-progress="3"><b>3</b><span>예약 확인</span></li>
+      </ol>
+
+      <form id="reserve-form" class="kiosk-layout" novalidate>
+        <div class="kiosk-stage card">
+          <section data-kiosk-step="1">
+            <div class="kiosk-title"><span class="kiosk-title__number">01</span><div><h2>어떤 메뉴를 예약할까요?</h2><p>메뉴 카드를 눌러 하나를 선택하세요.</p></div></div>
+            <fieldset><legend class="visually-hidden">메뉴 선택</legend><div id="menu-options" class="kiosk-menu-grid"></div></fieldset>
+            <div class="kiosk-actions kiosk-actions--end"><button id="menu-next" class="button button--primary kiosk-next" type="button" disabled>다음 · 학생 정보 입력</button></div>
+          </section>
+
+          <section data-kiosk-step="2" class="hidden">
+            <div class="kiosk-title"><span class="kiosk-title__number">02</span><div><h2>대표 학생 정보를 입력하세요</h2><p>예약 조회와 중복 확인에 사용합니다.</p></div></div>
+            <div class="kiosk-inputs">
+              <label>학번<input id="reserve-student-id" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="예: 2315" required><small>4자리 학번 · 5자리 입력은 자동 변환</small></label>
+              <label>이름<input id="reserve-student-name" autocomplete="name" maxlength="20" placeholder="예: 김복성" required></label>
+            </div>
+            <div class="privacy-note"><strong>입력 정보</strong><span>선택한 메뉴, 학번, 이름은 예약 운영과 행사 후 분석에 사용합니다.</span></div>
+            <div class="kiosk-actions"><button class="button button--secondary kiosk-back" type="button" data-back="1">이전</button><button id="info-next" class="button button--primary kiosk-next" type="button">다음 · 예약 확인</button></div>
+          </section>
+
+          <section data-kiosk-step="3" class="hidden">
+            <div class="kiosk-title"><span class="kiosk-title__number">03</span><div><h2>예약 내용을 확인하세요</h2><p>확정 후에는 조리 시작 전까지만 취소할 수 있습니다.</p></div></div>
+            <div class="kiosk-confirm">
+              <div><span>선택 메뉴</span><strong id="confirm-menu">-</strong></div>
+              <div><span>대표 학생</span><strong id="confirm-student">-</strong></div>
+            </div>
+            <div class="kiosk-actions"><button class="button button--secondary kiosk-back" type="button" data-back="2">이전</button><button id="reserve-submit" class="button button--primary kiosk-next" type="submit">이대로 예약 확정</button></div>
+          </section>
+
+          <p id="reserve-state" class="apply-state hidden" role="status"></p>
+        </div>
+
+        <aside class="kiosk-summary card" aria-label="선택 내역">
+          <span class="eyebrow">MY ORDER</span><h2>선택 내역</h2>
+          <div class="kiosk-summary__icon">🍽️</div>
+          <strong id="summary-menu">메뉴를 선택해 주세요</strong>
+          <p id="summary-student">학생 정보 입력 전</p>
+          <div class="kiosk-summary__status"><span>예약 수량</span><b>1개</b></div>
+        </aside>
       </form>
-      <div class="privacy-note"><strong>입력 정보</strong><span>선택한 메뉴, 학번, 이름은 예약 운영과 행사 후 분석에 사용합니다.</span></div>
     </section>
     <div id="toast" class="toast hidden" role="alert"></div>
   </main>
