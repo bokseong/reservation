@@ -107,8 +107,13 @@ function renderOperations() {
 function renderReservations() {
   const keyword = qs('#reservation-search').value.trim().toLowerCase();
   const menu = qs('#reservation-menu-filter').value;
-  const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName].some((value) => String(value || '').toLowerCase().includes(keyword)));
-  qs('#admin-reservations').innerHTML = filtered.slice(0, 100).map((item) => `<div class="data-row"><div><strong>${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(item.menuName || settings.serviceName || '')} · ${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div></div>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
+  const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName, item.menuName].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  const visible = filtered.slice(0, 100);
+  qs('#reservation-result-count').textContent = filtered.length > 100 ? `총 ${filtered.length}건 중 최근 100건을 표시합니다.` : `총 ${filtered.length}건`;
+  qs('#admin-reservations').innerHTML = visible.map((item) => `<article class="data-row reservation-record">
+    <div><strong>${escapeHtml(item.reservationNo)}</strong><span>예약자: ${escapeHtml(item.studentName)} · ${escapeHtml(item.studentIdNormalized)}</span></div>
+    <div class="reservation-record__details"><span>신청 메뉴: ${escapeHtml(item.menuName || settings.serviceName || '')}${Number.isFinite(Number(item.menuPrice)) ? ` · ${Number(item.menuPrice).toLocaleString('ko-KR')}원` : ''}</span><span>${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div>
+  </article>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
 }
 
 function renderSettings() {

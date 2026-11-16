@@ -196,6 +196,9 @@ small { color: var(--muted); font-weight: 500; }
 .queue-item--called { border-color: rgba(255,92,53,.5); }
 .queue-item strong, .data-row strong { display: block; margin-bottom: 4px; }
 .queue-item span, .data-row span { color: var(--muted); font-size: 12px; }
+.section-help { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.reservation-record { align-items: flex-start; }
+.reservation-record__details { display: grid; gap: 4px; text-align: right; }
 .empty-state { padding: 30px 10px; color: var(--muted); text-align: center; }
 .choice-button { display: grid; gap: 6px; width: 100%; margin-top: 10px; padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: #101010; color: var(--text); cursor: pointer; text-align: left; }
 .choice-button span { color: var(--muted); font-size: 13px; }
@@ -257,6 +260,8 @@ small { color: var(--muted); font-weight: 500; }
   .admin-menu-button { min-height: 38px; padding: 8px 10px; font-size: 12px; }
   .reservation-actions { grid-template-columns: 1fr; }
   .operations-toolbar { align-items: flex-start; flex-direction: column; }
+  .reservation-record { flex-direction: column; gap: 6px; }
+  .reservation-record__details { text-align: left; }
   .kiosk-header { align-items: flex-start; }
   .kiosk-exit { min-height: 38px; padding: 8px 10px; font-size: 12px; }
   .kiosk-progress li { justify-content: center; padding: 8px; }
