@@ -81,6 +81,20 @@ function hashToken(token) {
   return createHash('sha256').update(String(token)).digest('hex');
 }
 
+function normalizeAssignedMenuIds(value) {
+  if (!Array.isArray(value)) throw new HttpsError('invalid-argument', '전담 메뉴 목록 형식이 올바르지 않습니다.');
+  const availableIds = new Set(availableMenuItems().map((menu) => menu.id));
+  const ids = [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
+  if (ids.length > availableIds.size || ids.some((id) => !availableIds.has(id))) throw new HttpsError('invalid-argument', '존재하지 않거나 판매 중지된 메뉴가 포함되어 있습니다.');
+  return ids;
+}
+
+function ensureAssignedMenu(profile, reservation) {
+  if (profile.role === 'admin') return;
+  const assignedMenuIds = Array.isArray(profile.assignedMenuIds) ? profile.assignedMenuIds : [];
+  if (!assignedMenuIds.includes(reservation.menuId)) throw new HttpsError('permission-denied', '배정된 전담 메뉴의 예약만 처리할 수 있습니다.');
+}
+
 async function sendReadyNotification(reservationId, reservation) {
   const devices = await db.collection(`reservations/${reservationId}/notificationTokens`).get();
   const tokens = devices.docs.map((item) => ({ ref: item.ref, token: String(item.data().fcmToken || '') })).filter((item) => item.token);
@@ -334,7 +348,7 @@ export const cancelOwnReservation = checkedCall(async (request) => {
 export const getStaffSession = checkedCall(async (request) => {
   const profile = await getProfile(request);
   await ensureSettings();
-  return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true } };
+  return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true, assignedMenuIds: Array.isArray(profile.assignedMenuIds) ? profile.assignedMenuIds : [] } };
 });
 
 export const staffAction = checkedCall(async (request) => {
@@ -354,6 +368,7 @@ export const staffAction = checkedCall(async (request) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) throw new HttpsError('not-found', '예약이 없습니다.');
     const reservation = snapshot.data();
+    ensureAssignedMenu(profile, reservation);
     const settings = (await transaction.get(SETTINGS_REF)).data();
     const previousSnapshot = snapshotState(reservation);
     let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'ready' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
@@ -497,9 +512,10 @@ export const createStaffUser = checkedCall(async (request) => {
   const password = String(request.data?.password || '');
   const name = String(request.data?.name || '').trim().slice(0, 30);
   const role = request.data?.role === 'admin' ? 'admin' : 'staff';
+  const assignedMenuIds = normalizeAssignedMenuIds(request.data?.assignedMenuIds || []);
   if (!email.includes('@') || password.length < 8 || name.length < 2) throw new HttpsError('invalid-argument', '직원 이름, 이메일, 8자 이상 임시 비밀번호를 확인해 주세요.');
   const user = await auth.createUser({ email, password, displayName: name, disabled: false });
-  await db.doc(`staffProfiles/${user.uid}`).set({ name, email, role, active: true, createdAt: FieldValue.serverTimestamp(), createdBy: profile.uid });
+  await db.doc(`staffProfiles/${user.uid}`).set({ name, email, role, active: true, assignedMenuIds, createdAt: FieldValue.serverTimestamp(), createdBy: profile.uid });
   await writeOperationEvent({ type: '직원 계정 추가', actorUid: profile.uid, actorNameSnapshot: profile.name, content: `${name} · ${role}`, operationId: parseOperationId(request.data?.operationId) });
   return { uid: user.uid };
 });
@@ -509,11 +525,21 @@ export const updateStaffProfile = checkedCall(async (request) => {
   const uid = String(request.data?.uid || '');
   if (!uid) throw new HttpsError('invalid-argument', '직원 UID가 필요합니다.');
   const target = await db.doc(`staffProfiles/${uid}`).get();
+  if (!target.exists) throw new HttpsError('not-found', '대상 관리자 계정을 찾을 수 없습니다.');
   const targetEmail = String(target.data()?.email || '').toLowerCase();
-  if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role === 'staff' || request.data.active === false)) throw new HttpsError('failed-precondition', '절대 관리자는 강등하거나 비활성화할 수 없습니다.');
+  if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role != null || request.data.active != null || request.data.assignedMenuIds != null)) throw new HttpsError('failed-precondition', '절대 관리자 계정은 변경할 수 없습니다.');
   const updates = { updatedAt: FieldValue.serverTimestamp() };
-  if (request.data.role != null) updates.role = request.data.role === 'admin' ? 'admin' : 'staff';
-  if (request.data.active != null) updates.active = request.data.active === true;
+  if (request.data.role != null) {
+    if (!['admin', 'staff'].includes(request.data.role)) throw new HttpsError('invalid-argument', '관리자 등급이 올바르지 않습니다.');
+    updates.role = request.data.role;
+  }
+  if (request.data.active != null) {
+    if (typeof request.data.active !== 'boolean') throw new HttpsError('invalid-argument', '계정 활성 상태가 올바르지 않습니다.');
+    if (uid === profile.uid && request.data.active === false) throw new HttpsError('failed-precondition', '자기 계정은 비활성화할 수 없습니다.');
+    updates.active = request.data.active;
+  }
+  if (request.data.assignedMenuIds != null) updates.assignedMenuIds = normalizeAssignedMenuIds(request.data.assignedMenuIds);
+  if (Object.keys(updates).length === 1) throw new HttpsError('invalid-argument', '변경할 관리자 정보가 없습니다.');
   await db.doc(`staffProfiles/${uid}`).set(updates, { merge: true });
   if (request.data.active != null) await auth.updateUser(uid, { disabled: request.data.active !== true });
   await writeOperationEvent({ type: request.data.active === false ? '직원 계정 비활성화' : '직원 정보 변경', actorUid: profile.uid, actorNameSnapshot: profile.name, content: uid, operationId: parseOperationId(request.data?.operationId) });

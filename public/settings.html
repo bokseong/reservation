@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111111">
   <title>1급 관리자 설정 · 복성고 예약</title>
-  <link rel="stylesheet" href="./css/app.css?v=20261116-4">
+  <link rel="stylesheet" href="./css/app.css?v=20261117-3">
 </head>
 <body class="admin-page">
   <main class="shell shell--wide">
@@ -27,7 +27,7 @@
 
       <section data-settings-panel="break" class="hidden"><section class="card"><h2>휴식시간 설정</h2><div id="settings-break-active" class="hidden"><p id="settings-break-text"></p><div class="button-row"><button id="settings-extend-break" class="button button--secondary">5분 연장</button><button id="settings-end-break" class="button button--danger-outline">지금 끝내기</button></div></div><form id="settings-break-form"><label>사유<input id="settings-break-reason" maxlength="30" placeholder="기기 오작동" required></label><div class="quick-reasons"><button type="button">기기 오작동</button><button type="button">직원 휴게 시간</button><button type="button">재료 준비 중</button></div><label>예정 시간 <output id="settings-break-output">10분</output><input id="settings-break-minutes" type="range" min="1" max="60" value="10"></label><button class="button button--primary">휴식시간 시작</button></form></section></section>
 
-      <section data-settings-panel="staff" class="hidden"><div class="admin-grid"><form id="settings-staff-create" class="card"><h2>관리자 계정 추가</h2><label>표시 이름<input name="name" required maxlength="30"></label><label>이메일<input name="email" type="email" required></label><label>임시 비밀번호<input name="password" type="password" required minlength="8"></label><label>등급<select name="role"><option value="staff">2급 관리자</option><option value="admin">1급 관리자</option></select></label><button class="button button--primary">계정 만들기</button></form><section class="card"><h2>관리자 등급</h2><p>2급은 예약 조회와 조리 상태 변경만 가능합니다.</p><div id="settings-staff-list" class="data-list"></div></section></div></section>
+      <section data-settings-panel="staff" class="hidden"><div class="admin-grid"><form id="settings-staff-create" class="card"><h2>관리자 계정 추가</h2><label>표시 이름<input name="name" required maxlength="30"></label><label>이메일<input name="email" type="email" required></label><label>임시 비밀번호<input name="password" type="password" required minlength="8"></label><label>등급<select name="role"><option value="staff">2급 관리자</option><option value="admin">1급 관리자</option></select></label><fieldset class="menu-assignment"><legend>전담 메뉴</legend><p>2급 관리자는 배정한 메뉴 예약만 조회·조리 처리할 수 있습니다.</p><div id="settings-new-staff-menus" class="menu-assignment__choices"></div></fieldset><button class="button button--primary">계정 만들기</button></form><section class="card"><h2>권한 · 전담 메뉴 관리</h2><p>등급과 전담 메뉴 변경은 이 1급 관리자 전용 페이지에서만 할 수 있습니다.</p><div id="settings-staff-list" class="data-list"></div></section></div></section>
 
       <section data-settings-panel="export" class="hidden"><section class="card export-card"><h2>CSV 내보내기</h2><p>Asia/Seoul 시간대와 UTF-8 BOM을 적용합니다.</p><div class="export-grid"><button data-settings-export="events" class="button button--secondary">이력 CSV</button><button data-settings-export="operations" class="button button--secondary">운영기록 CSV</button><button data-settings-export="summary" class="button button--primary">요약 CSV</button></div></section></section>
     </section>
@@ -37,6 +37,6 @@
     <p>이 사이트는 reCAPTCHA로 보호되며 Google <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">개인정보처리방침</a> 및 <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer">서비스 약관</a>이 적용됩니다.</p>
     <p>© 2026 복성고 학술문화제. All rights reserved.</p>
   </footer>
-  <script type="module" src="./js/settings.js?v=20261117-1"></script>
+  <script type="module" src="./js/settings.js?v=20261117-3"></script>
 </body>
 </html>

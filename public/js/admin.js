@@ -1,7 +1,7 @@
 import { functions, ensureAppCheck } from './firebase.js?v=20261117-1';
 import { auth, db } from './firebase-staff.js?v=20261117-1';
 import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { collection, doc, onSnapshot, orderBy, query, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
+import { collection, doc, onSnapshot, orderBy, query, where, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
 import { availableMenuItems } from './menu.js';
@@ -33,6 +33,8 @@ async function loadAdmin() {
     qs('#admin-role-label').textContent = isAdmin1 ? (profile.absoluteAdmin ? '절대 관리자 · 1급' : '1급 관리자') : '2급 관리자';
     show(qs('#settings-link'), isAdmin1);
     qsa('.admin-only-control').forEach((element) => show(element, isAdmin1));
+    qsa('[data-admin-action]').forEach((button) => show(button, isAdmin1 || ['cooking_start', 'cooking_complete'].includes(button.dataset.adminAction)));
+    ['#admin-history-button', '#admin-no-show-button', '#admin-sold-out-button'].forEach((selector) => show(qs(selector), isAdmin1));
     show(qs('#admin-login'), false); show(qs('#admin-view'), true); subscribeData();
   } catch (error) {
     await signOut(auth); qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true);
@@ -43,10 +45,32 @@ function subscribeData() {
   unsubscribers.forEach((unsubscribe) => unsubscribe());
   unsubscribers = [
     onSnapshot(doc(db, 'settings', 'event'), (snapshot) => { settings = snapshot.data() || {}; renderSettings(); renderOperations(); }),
-    onSnapshot(query(collection(db, 'reservations'), orderBy('createdAt', 'desc')), (snapshot) => { reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReservations(); renderStats(); renderOperations(); }),
-    onSnapshot(query(collection(db, 'reservationEvents'), orderBy('occurredAt', 'desc'), limit(50)), (snapshot) => { events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderOperations(); })
+    subscribeReservations()
   ];
-  if (profile?.role === 'admin') unsubscribers.push(onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); }));
+  if (profile?.role === 'admin') {
+    unsubscribers.push(onSnapshot(query(collection(db, 'reservationEvents'), orderBy('occurredAt', 'desc'), limit(50)), (snapshot) => { events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderOperations(); }));
+    unsubscribers.push(onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); }));
+  }
+}
+
+function subscribeReservations() {
+  const assignedMenuIds = Array.isArray(profile?.assignedMenuIds) ? profile.assignedMenuIds : [];
+  if (profile?.role !== 'admin' && assignedMenuIds.length === 0) {
+    reservations = [];
+    renderReservations(); renderStats(); renderOperations();
+    return () => {};
+  }
+  const reservationsQuery = profile?.role === 'admin'
+    ? query(collection(db, 'reservations'), orderBy('createdAt', 'desc'))
+    : query(collection(db, 'reservations'), where('menuId', 'in', assignedMenuIds));
+  return onSnapshot(reservationsQuery, (snapshot) => {
+    reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((left, right) => {
+      const leftTime = left.createdAt?.toMillis?.() || 0;
+      const rightTime = right.createdAt?.toMillis?.() || 0;
+      return rightTime - leftTime;
+    });
+    renderReservations(); renderStats(); renderOperations();
+  }, (error) => showToast(friendlyError(error), 6000));
 }
 
 function renderStats() {

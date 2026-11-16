@@ -21,18 +21,24 @@ service cloud.firestore {
       return isStaff() && profile().data.role == 'admin';
     }
 
+    function isAssignedStaffForReservation() {
+      return isStaff()
+        && profile().data.role == 'staff'
+        && resource.data.menuId in profile().data.assignedMenuIds;
+    }
+
     match /settings/{document=**} {
       allow read: if true;
       allow write: if false;
     }
 
     match /reservations/{reservationId} {
-      allow read: if isStaff();
+      allow read: if isAdmin() || isAssignedStaffForReservation();
       allow write: if false;
     }
 
     match /reservationEvents/{eventId} {
-      allow read: if isStaff();
+      allow read: if isAdmin();
       allow write: if false;
     }
 

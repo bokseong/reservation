@@ -222,6 +222,13 @@ small { color: var(--muted); font-weight: 500; }
 .toggle-label { display: flex; flex-direction: row; align-items: center; }
 .data-row__actions { display: flex; gap: 6px; }
 .data-row__actions button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 11px; }
+.menu-assignment { margin: 16px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.menu-assignment legend { padding: 0 5px; color: var(--text); font-size: 13px; font-weight: 700; }
+.menu-assignment p { margin: 0 0 10px; color: var(--muted); font-size: 12px; }
+.menu-assignment__choices { display: grid; gap: 8px; }
+.menu-assignment__choices label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; color: var(--text); font-size: 13px; }
+.menu-assignment__choices input { width: auto; margin: 0; }
+.staff-assignment { width: 100%; margin-top: 12px; }
 .export-card { max-width: 760px; }
 .operations-toolbar { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 16px; }
 .operations-toolbar h2, .operations-toolbar p { margin-bottom: 0; }
