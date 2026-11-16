@@ -1,4 +1,4 @@
-import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebase.js?v=20261116-5';
+import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebase.js?v=20261116-6';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { getMessaging, getToken as getMessagingToken, isSupported, onMessage } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-messaging.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';

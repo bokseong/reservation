@@ -67,6 +67,7 @@ export function friendlyError(error) {
     'auth/user-disabled': '사용이 중지된 계정입니다.',
     'auth/unauthorized-domain': '이 도메인은 Firebase Authentication에 승인되지 않았습니다. 관리자에게 문의해 주세요.',
     'auth/operation-not-allowed': 'Google 로그인 제공업체가 아직 활성화되지 않았습니다.',
+    'auth/argument-error': 'Google 로그인 초기화에 실패했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.',
     'auth/popup-blocked': '브라우저가 Google 로그인 창을 차단했습니다. 팝업을 허용해 주세요.',
     'auth/popup-closed-by-user': 'Google 로그인 창이 닫혔습니다. 다시 시도해 주세요.',
     'auth/cancelled-popup-request': '다른 Google 로그인 요청이 진행 중입니다.',

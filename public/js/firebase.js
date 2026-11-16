@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
-import { initializeAuth, browserLocalPersistence } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
+import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { getFunctions } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 
@@ -32,6 +32,9 @@ const initialAppCheckToken = getToken(appCheck, false);
 export function ensureAppCheck(forceRefresh = false) {
   return forceRefresh ? getToken(appCheck, true) : initialAppCheckToken;
 }
-export const auth = initializeAuth(app, { persistence: browserLocalPersistence });
+export const auth = initializeAuth(app, {
+  persistence: browserLocalPersistence,
+  popupRedirectResolver: browserPopupRedirectResolver
+});
 export const db = getFirestore(app, 'reservation');
 export const functions = getFunctions(app, 'asia-northeast3');
