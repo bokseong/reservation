@@ -175,8 +175,6 @@ export const getPublicSettings = onCall(async () => {
 });
 
 export const createReservation = onCall(async (request) => {
-  const user = requireAuth(request);
-  if (!user.token.firebase?.sign_in_provider) throw new HttpsError('unauthenticated', '인증이 필요합니다.');
   let studentId;
   let studentName;
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
@@ -212,10 +210,10 @@ export const createReservation = onCall(async (request) => {
       createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: active.size,
       estimatedWaitMinutes: null, test: false,
       currentStatus: active.empty ? 'called' : 'waiting', queueOrder: queueOrderNumber, teamsAhead: active.size,
-      holdCount: 0, customerUid: user.uid, customerTokenHash: hashToken(token),
+      holdCount: 0, customerUid: null, customerTokenHash: hashToken(token),
       pickupAt: null, missedAt: null, cancelMemo: null, lastEventId: null
     };
-    const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'apply', actorType: 'customer', actorUid: user.uid, actorName: '본인', operationId, undoable: false });
+    const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'apply', actorType: 'customer', actorUid: null, actorName: '본인', operationId, undoable: false });
     reservation.lastEventId = added.eventRef.id;
     transaction.set(ref, reservation);
     const publicData = { ...publicReservation(ref.id, { ...reservation, createdAt: Timestamp.now() }) };
@@ -227,7 +225,6 @@ export const createReservation = onCall(async (request) => {
 });
 
 export const lookupReservation = onCall(async (request) => {
-  requireAuth(request);
   let studentId;
   let studentName;
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
@@ -240,15 +237,24 @@ export const lookupReservation = onCall(async (request) => {
     const eventNo = await allocateNumber('reservationEvent', 'H');
     await db.runTransaction(async (transaction) => {
       const current = (await transaction.get(document.ref)).data();
-      const added = await addReservationEvent(transaction, document.ref, current, { eventNo, type: 'relookup', actorType: 'customer', actorUid: request.auth.uid, actorName: '본인', operationId, undoable: false });
+      const added = await addReservationEvent(transaction, document.ref, current, { eventNo, type: 'relookup', actorType: 'customer', actorUid: request.auth?.uid || null, actorName: '본인', operationId, undoable: false });
       transaction.update(document.ref, { lastEventId: added.eventRef.id, relookupCount: FieldValue.increment(1) });
     });
   }
   return { reservation: publicReservation(document.id, document.data()), recoveredViewOnly: true };
 });
 
+export const getCustomerReservation = onCall(async (request) => {
+  const reservationId = String(request.data?.reservationId || '');
+  const token = String(request.data?.customerToken || '');
+  if (!reservationId || !/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '예약 token이 올바르지 않습니다.');
+  const snapshot = await db.doc(`reservations/${reservationId}`).get();
+  if (!snapshot.exists) throw new HttpsError('not-found', '예약이 없습니다.');
+  if (snapshot.data().customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '예약 token이 일치하지 않습니다.');
+  return { reservation: publicReservation(snapshot.id, snapshot.data()) };
+});
+
 export const cancelOwnReservation = onCall(async (request) => {
-  const user = requireAuth(request);
   const id = String(request.data?.reservationId || '');
   const token = String(request.data?.customerToken || '');
   const operationId = parseOperationId(request.data?.operationId);
@@ -258,11 +264,11 @@ export const cancelOwnReservation = onCall(async (request) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) throw new HttpsError('not-found', '예약이 없습니다.');
     const reservation = snapshot.data();
-    if (reservation.customerUid !== user.uid || reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 취소할 수 있습니다.');
+    if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 취소할 수 있습니다.');
     if (!ACTIVE.includes(reservation.currentStatus)) throw new HttpsError('failed-precondition', '현재 상태에서는 취소할 수 없습니다.');
     const previousSnapshot = snapshotState(reservation);
     await normalizeQueue(transaction, { removeId: id });
-    const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'cancel', actorType: 'customer', actorUid: user.uid, actorName: '본인', operationId, previousSnapshot, undoable: false });
+    const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'cancel', actorType: 'customer', actorUid: null, actorName: '본인', operationId, previousSnapshot, undoable: false });
     transaction.update(ref, { currentStatus: 'cancelled', teamsAhead: null, cancelMemo: '본인 취소', lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
   });
   return { ok: true };

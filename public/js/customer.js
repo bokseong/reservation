@@ -1,18 +1,15 @@
-import { auth, appCheck, db, functions } from './firebase-config.js';
-import { signInAnonymously } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
-import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
+import { functions } from './firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
 const createReservation = httpsCallable(functions, 'createReservation');
 const lookupReservation = httpsCallable(functions, 'lookupReservation');
+const getCustomerReservation = httpsCallable(functions, 'getCustomerReservation');
 const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 
 let session = readSession();
-let unsubscribeReservation = null;
 let settings = null;
 let recoveredTimer = null;
 
@@ -28,10 +25,9 @@ function saveSession(value) {
 
 async function initialize() {
   try {
-    await getToken(appCheck, true);
-    if (!auth.currentUser) await signInAnonymously(auth);
     await loadSettings();
-    if (session?.reservationId && session?.token) watchReservation(session.reservationId);
+    if (session?.reservationId && session?.token) startTokenPolling();
+    else if (session?.studentId && session?.studentName) startRecoveredPolling();
     else showForm();
   } catch (error) {
     showForm();
@@ -71,24 +67,22 @@ function showForm() {
   show(qs('#reservation-view'), false);
 }
 
-function watchReservation(reservationId) {
+function startTokenPolling() {
   clearInterval(recoveredTimer);
-  unsubscribeReservation?.();
-  unsubscribeReservation = onSnapshot(doc(db, 'reservations', reservationId), (snapshot) => {
-    if (!snapshot.exists()) {
-      saveSession(null);
-      showForm();
-      return;
+  const refresh = async () => {
+    try {
+      const response = await getCustomerReservation({ reservationId: session.reservationId, customerToken: session.token });
+      renderReservation(response.data.reservation, false);
+    } catch (error) {
+      if (error?.code?.includes('not-found') || error?.code?.includes('permission-denied')) { saveSession(null); showForm(); }
+      else showToast(friendlyError(error));
     }
-    renderReservation({ id: snapshot.id, ...snapshot.data() }, false);
-  }, () => {
-    if (session?.studentId && session?.studentName) startRecoveredPolling();
-    else { saveSession(null); showForm(); }
-  });
+  };
+  refresh();
+  recoveredTimer = setInterval(refresh, 3000);
 }
 
 async function startRecoveredPolling() {
-  unsubscribeReservation?.();
   const refresh = async () => {
     try {
       const response = await lookupReservation({ studentId: session.studentId, studentName: session.studentName, operationId: operationId(), recordLookup: false });
@@ -147,7 +141,8 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
     const response = await createReservation({ studentId, studentName, customerToken: token, operationId: operationId() });
     if (response.data.created) {
       saveSession({ reservationId: response.data.reservation.id, token });
-      watchReservation(response.data.reservation.id);
+      renderReservation(response.data.reservation, false);
+      startTokenPolling();
       showToast(`${response.data.reservation.reservationNo} 예약이 완료됐어요.`);
     } else {
       saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
@@ -174,7 +169,6 @@ qs('#cancel-dialog').addEventListener('close', async () => {
     setBusy(qs('#cancel-button'), true);
     await cancelReservation({ reservationId: session.reservationId, customerToken: session.token, operationId: operationId() });
     saveSession(null);
-    unsubscribeReservation?.();
     showForm();
     showToast('예약이 취소되었습니다.');
   } catch (error) { showToast(friendlyError(error), 5000); }
@@ -182,7 +176,7 @@ qs('#cancel-dialog').addEventListener('close', async () => {
 });
 
 qs('#forget-button').addEventListener('click', () => {
-  saveSession(null); clearInterval(recoveredTimer); unsubscribeReservation?.(); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
+  saveSession(null); clearInterval(recoveredTimer); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
 });
 
 initialize();
