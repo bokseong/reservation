@@ -1,4 +1,4 @@
-import { functions, ensureAppCheck } from './firebase.js?v=20261116-6';
+import { functions, ensureAppCheck } from './firebase.js?v=20261117-1';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, escapeHtml, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
 import { availableMenuItems, formatPrice } from './menu.js';

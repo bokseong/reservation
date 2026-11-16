@@ -1,6 +1,5 @@
-import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebase.js?v=20261116-6';
+import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebase.js?v=20261117-1';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
-import { getMessaging, getToken as getMessagingToken, isSupported, onMessage } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-messaging.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
@@ -44,20 +43,22 @@ async function initialize() {
 
 async function registerPushDevice(requestPermission = false) {
   if (!session?.reservationId || !session?.token) throw new Error('최초 예약 기기에서만 알림을 연결할 수 있습니다.');
-  if (!('Notification' in window) || !('serviceWorker' in navigator) || !(await isSupported())) throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다.');
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다.');
+  const messagingSdk = await import('https://www.gstatic.com/firebasejs/13.2.0/firebase-messaging.js');
+  if (!(await messagingSdk.isSupported())) throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다.');
   let permission = Notification.permission;
   if (permission !== 'granted' && requestPermission) permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('브라우저 알림 권한이 필요합니다.');
 
   const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: './' });
-  messaging ||= getMessaging(app);
-  const fcmToken = await getMessagingToken(messaging, { vapidKey: webPushCertificateKey, serviceWorkerRegistration: registration });
+  messaging ||= messagingSdk.getMessaging(app);
+  const fcmToken = await messagingSdk.getToken(messaging, { vapidKey: webPushCertificateKey, serviceWorkerRegistration: registration });
   if (!fcmToken) throw new Error('푸시 알림 기기를 등록하지 못했습니다.');
   await registerNotificationDevice({ reservationId: session.reservationId, customerToken: session.token, fcmToken, operationId: operationId() });
   saveSession({ ...session, notificationEnabled: true });
 
   if (!foregroundMessageListener) {
-    onMessage(messaging, (payload) => {
+    messagingSdk.onMessage(messaging, (payload) => {
       const title = payload.notification?.title || `${settings?.serviceName || '먹거리 부스'} 조리 완료`;
       const body = payload.notification?.body || '음식이 준비됐어요. 지금 받아 주세요.';
       showToast(body, 6000);

@@ -1,7 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider, getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
-import { initializeAuth, browserLocalPersistence, browserPopupRedirectResolver } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
-import { getFirestore } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { getFunctions } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 
 // Firebase Console > 프로젝트 설정 > 내 앱 > SDK 설정 및 구성에서 복사한 값을 입력하세요.
@@ -32,9 +30,4 @@ const initialAppCheckToken = getToken(appCheck, false);
 export function ensureAppCheck(forceRefresh = false) {
   return forceRefresh ? getToken(appCheck, true) : initialAppCheckToken;
 }
-export const auth = initializeAuth(app, {
-  persistence: browserLocalPersistence,
-  popupRedirectResolver: browserPopupRedirectResolver
-});
-export const db = getFirestore(app, 'reservation');
 export const functions = getFunctions(app, 'asia-northeast3');
