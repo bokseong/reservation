@@ -1,0 +1,188 @@
+import { auth, db, functions } from './firebase-config.js';
+import { signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js';
+import { doc, onSnapshot } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.1.0/firebase-functions.js';
+import { qs, show, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
+
+const STORAGE_KEY = 'bokseong-reservation-session-v1';
+const createReservation = httpsCallable(functions, 'createReservation');
+const lookupReservation = httpsCallable(functions, 'lookupReservation');
+const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
+const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
+
+let session = readSession();
+let unsubscribeReservation = null;
+let settings = null;
+let recoveredTimer = null;
+
+function readSession() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+}
+
+function saveSession(value) {
+  session = value;
+  if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  else localStorage.removeItem(STORAGE_KEY);
+}
+
+async function initialize() {
+  try {
+    if (!auth.currentUser) await signInAnonymously(auth);
+    await loadSettings();
+    if (session?.reservationId && session?.token) watchReservation(session.reservationId);
+    else showForm();
+  } catch (error) {
+    showForm();
+    showToast(friendlyError(error), 6000);
+  } finally {
+    show(qs('#loading-view'), false);
+  }
+}
+
+async function loadSettings() {
+  const response = await getPublicSettings();
+  settings = response.data;
+  renderSettings();
+}
+
+function renderSettings() {
+  if (!settings) return;
+  qs('#service-title').textContent = settings.serviceName || '먹거리 예약';
+  qs('#service-subtitle').textContent = `${settings.eventName || '복성고 학술문화제'} · 줄 서지 말고 차례만 확인하세요.`;
+  const notice = qs('#global-notice');
+  notice.textContent = settings.notice || '';
+  show(notice, Boolean(settings.notice));
+  const breakNotice = qs('#break-notice');
+  if (settings.breakActive) {
+    const end = new Date(settings.breakPlannedEndAt);
+    const overdue = end.getTime() <= Date.now();
+    breakNotice.textContent = overdue
+      ? `부스가 잠시 쉬는 중이에요 · ${settings.breakReason} · 곧 다시 열어요.`
+      : `부스가 잠시 쉬는 중이에요 · ${settings.breakReason} · 예정 ${end.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  show(breakNotice, Boolean(settings.breakActive));
+  qs('#submit-button').textContent = settings.acceptingNow ? '예약하기' : '내 예약 조회';
+}
+
+function showForm() {
+  show(qs('#form-view'), true);
+  show(qs('#reservation-view'), false);
+}
+
+function watchReservation(reservationId) {
+  clearInterval(recoveredTimer);
+  unsubscribeReservation?.();
+  unsubscribeReservation = onSnapshot(doc(db, 'reservations', reservationId), (snapshot) => {
+    if (!snapshot.exists()) {
+      saveSession(null);
+      showForm();
+      return;
+    }
+    renderReservation({ id: snapshot.id, ...snapshot.data() }, false);
+  }, () => {
+    if (session?.studentId && session?.studentName) startRecoveredPolling();
+    else { saveSession(null); showForm(); }
+  });
+}
+
+async function startRecoveredPolling() {
+  unsubscribeReservation?.();
+  const refresh = async () => {
+    try {
+      const response = await lookupReservation({ studentId: session.studentId, studentName: session.studentName, operationId: operationId(), recordLookup: false });
+      renderReservation(response.data.reservation, true);
+    } catch (error) { showToast(friendlyError(error)); }
+  };
+  await refresh();
+  recoveredTimer = setInterval(refresh, 15000);
+}
+
+function renderReservation(reservation, recovered) {
+  show(qs('#form-view'), false);
+  show(qs('#reservation-view'), true);
+  qs('#reservation-no').textContent = reservation.reservationNo;
+  qs('#reservation-owner').textContent = `${reservation.studentIdNormalized} ${reservation.studentName} · ${settings?.serviceName || ''}`;
+  const status = reservation.currentStatus;
+  const panel = qs('#status-panel');
+  const label = qs('#status-label');
+  const value = qs('#status-value');
+  const help = qs('#status-help');
+  panel.dataset.tone = '';
+  label.textContent = '예약 상태';
+  help.textContent = '';
+
+  if (status === 'called') {
+    label.textContent = '호출됨'; value.textContent = '지금 내 차례'; help.textContent = '부스로 와서 음식을 받아 주세요.'; panel.dataset.tone = 'success';
+  } else if (status === 'waiting' || status === 'held') {
+    const ahead = Number(reservation.teamsAhead ?? 0);
+    label.textContent = status === 'held' ? '보류 후 대기 중' : '대기 중'; value.textContent = `앞에 ${ahead}팀`; help.textContent = '화면은 자동으로 갱신됩니다.';
+  } else if (status === 'no_show') {
+    const missedAt = new Date(reservation.missedAt);
+    const grace = Number(settings?.noShowGraceSeconds || 60);
+    const elapsed = Math.floor((Date.now() - missedAt.getTime()) / 1000);
+    if (elapsed <= grace) { label.textContent = '차례를 놓쳤어요'; value.textContent = `${Math.max(0, grace - elapsed)}초 남음`; help.textContent = '지금 바로 부스 직원에게 말해 주세요.'; }
+    else { label.textContent = '미수령'; value.textContent = '만료됨'; help.textContent = '수령 가능 시간이 지났습니다.'; panel.dataset.tone = 'danger'; }
+  } else if (status === 'picked_up') {
+    label.textContent = '처리 완료'; value.textContent = '수령 완료'; help.textContent = '이용해 주셔서 감사합니다.'; panel.dataset.tone = 'success';
+  } else if (status === 'cancelled') {
+    label.textContent = '예약 취소'; value.textContent = '취소됨'; help.textContent = reservation.cancelMemo === '재료 소진' ? '재료가 떨어져 예약이 취소됐어요.' : '예약이 취소되었습니다.'; panel.dataset.tone = 'danger';
+  }
+
+  const canCancel = !recovered && ['waiting', 'called', 'held'].includes(status) && Boolean(session?.token);
+  show(qs('#cancel-button'), canCancel);
+  show(qs('#readonly-hint'), recovered);
+  if (status === 'no_show') setTimeout(() => renderReservation(reservation, recovered), 1000);
+}
+
+qs('#reservation-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const button = qs('#submit-button');
+  const studentId = qs('#student-id').value.trim();
+  const studentName = qs('#student-name').value.trim();
+  setBusy(button, true);
+  try {
+    const token = customerToken();
+    const response = await createReservation({ studentId, studentName, customerToken: token, operationId: operationId() });
+    if (response.data.created) {
+      saveSession({ reservationId: response.data.reservation.id, token });
+      watchReservation(response.data.reservation.id);
+      showToast(`${response.data.reservation.reservationNo} 예약이 완료됐어요.`);
+    } else {
+      saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
+      renderReservation(response.data.reservation, true);
+      startRecoveredPolling();
+      showToast('기존 예약을 보기 전용으로 불러왔어요.');
+    }
+  } catch (error) {
+    if (error?.details?.canLookup) {
+      try {
+        const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
+        saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
+        renderReservation(response.data.reservation, true);
+        startRecoveredPolling();
+      } catch (lookupError) { showToast(friendlyError(lookupError), 5000); }
+    } else showToast(friendlyError(error), 5000);
+  } finally { setBusy(button, false); }
+});
+
+qs('#cancel-button').addEventListener('click', () => qs('#cancel-dialog').showModal());
+qs('#cancel-dialog').addEventListener('close', async () => {
+  if (qs('#cancel-dialog').returnValue !== 'confirm') return;
+  try {
+    setBusy(qs('#cancel-button'), true);
+    await cancelReservation({ reservationId: session.reservationId, customerToken: session.token, operationId: operationId() });
+    saveSession(null);
+    unsubscribeReservation?.();
+    showForm();
+    showToast('예약이 취소되었습니다.');
+  } catch (error) { showToast(friendlyError(error), 5000); }
+  finally { setBusy(qs('#cancel-button'), false); }
+});
+
+qs('#forget-button').addEventListener('click', () => {
+  saveSession(null); clearInterval(recoveredTimer); unsubscribeReservation?.(); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
+});
+
+onAuthStateChanged(auth, (user) => { if (user && qs('#loading-view')) initialize(); });
+if (!auth.currentUser) signInAnonymously(auth).catch((error) => { show(qs('#loading-view'), false); showForm(); showToast(friendlyError(error), 6000); });
+

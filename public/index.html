@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <meta name="description" content="복성고 학술문화제 먹거리 부스 예약">
+  <title>복성고 먹거리 예약</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body class="customer-page">
+  <main class="shell shell--narrow">
+    <header class="brand-header">
+      <span class="eyebrow">2026 복성고 학술문화제</span>
+      <h1 id="service-title">먹거리 예약</h1>
+      <p id="service-subtitle">줄 서지 말고, 차례만 확인하세요.</p>
+    </header>
+
+    <div id="global-notice" class="notice hidden" role="status"></div>
+    <div id="break-notice" class="notice notice--break hidden" role="status"></div>
+
+    <section id="loading-view" class="card centered">
+      <div class="spinner" aria-label="불러오는 중"></div>
+      <p>예약 정보를 불러오고 있어요.</p>
+    </section>
+
+    <section id="form-view" class="card hidden">
+      <div class="section-heading">
+        <span class="step-badge">01</span>
+        <div>
+          <h2>예약 또는 다시 조회</h2>
+          <p>대표 학생의 학번과 이름만 입력하세요.</p>
+        </div>
+      </div>
+      <form id="reservation-form" novalidate>
+        <label>학번
+          <input id="student-id" name="studentId" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="예: 2315" required>
+          <small>4자리 학번 · 5자리 입력은 자동 변환</small>
+        </label>
+        <label>이름
+          <input id="student-name" name="studentName" autocomplete="name" maxlength="20" placeholder="예: 김복성" required>
+        </label>
+        <button class="button button--primary button--large" type="submit" id="submit-button">예약하기</button>
+      </form>
+      <div class="privacy-note">
+        <strong>입력 정보</strong>
+        <span>학번과 이름만 수집하며 예약 운영과 행사 후 분석에 사용합니다.</span>
+      </div>
+    </section>
+
+    <section id="reservation-view" class="hidden">
+      <article class="ticket card">
+        <div class="ticket__top">
+          <span class="eyebrow">내 예약</span>
+          <strong id="reservation-no">R-0000</strong>
+        </div>
+        <p id="reservation-owner" class="muted"></p>
+        <div id="status-panel" class="status-panel">
+          <span id="status-label" class="status-panel__label">대기 중</span>
+          <strong id="status-value" class="status-panel__value">앞에 0팀</strong>
+          <p id="status-help" class="status-panel__help"></p>
+        </div>
+        <button id="cancel-button" class="button button--danger-outline hidden">예약 취소</button>
+        <p id="readonly-hint" class="readonly-hint hidden">학번·이름으로 다시 조회한 예약은 보기만 가능합니다.</p>
+      </article>
+      <button id="forget-button" class="button button--text">이 폰의 예약 기억 지우기</button>
+    </section>
+
+    <div id="toast" class="toast hidden" role="alert"></div>
+  </main>
+
+  <dialog id="cancel-dialog" class="modal">
+    <form method="dialog">
+      <span class="modal__icon">!</span>
+      <h2>예약을 취소할까요?</h2>
+      <p>취소하면 같은 학번으로 다시 예약할 수 없습니다. 이 작업은 되돌릴 수 없어요.</p>
+      <div class="modal__actions">
+        <button value="back" class="button button--secondary">돌아가기</button>
+        <button value="confirm" class="button button--danger">취소하기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="./js/customer.js"></script>
+</body>
+</html>
+

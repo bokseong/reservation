@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <title>직원 화면 · 복성고 예약</title>
+  <link rel="stylesheet" href="./css/app.css">
+</head>
+<body class="staff-page">
+  <main class="shell shell--staff">
+    <section id="login-view" class="auth-card card">
+      <span class="eyebrow">STAFF ACCESS</span>
+      <h1>직원 로그인</h1>
+      <p>학생회에서 발급한 계정으로 로그인하세요.</p>
+      <form id="login-form">
+        <label>이메일<input id="email" type="email" autocomplete="username" required></label>
+        <label>비밀번호<input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="button button--primary button--large">로그인</button>
+      </form>
+      <p id="login-error" class="form-error hidden"></p>
+    </section>
+
+    <section id="staff-view" class="hidden">
+      <header class="staff-header">
+        <div><span id="staff-meta" class="eyebrow"></span><h1 id="staff-service">먹거리 부스</h1></div>
+        <div class="header-actions"><a id="admin-link" class="button button--secondary hidden" href="./admin.html">1급 화면</a><button id="logout-button" class="button button--text">로그아웃</button></div>
+      </header>
+      <div id="staff-break" class="notice notice--break hidden"></div>
+      <section class="queue-summary"><span id="accepting-state" class="state-pill"></span><strong>대기 <b id="queue-count">0</b>팀</strong></section>
+
+      <section id="current-card" class="current-card card">
+        <div class="current-card__identity"><span>지금 차례</span><strong id="current-reservation">대기 팀 없음</strong><p id="current-student"></p></div>
+        <div class="action-grid">
+          <button data-action="pickup" class="action-button action-button--pickup">수령</button>
+          <button data-action="no_show" class="action-button">미수령</button>
+          <button data-action="hold" class="action-button">보류</button>
+          <button data-action="cancel" class="action-button action-button--danger">취소</button>
+        </div>
+      </section>
+
+      <div class="utility-grid">
+        <button id="no-show-button" class="utility-button"><span>미수령</span><b id="no-show-count">0</b></button>
+        <button id="history-button" class="utility-button">기록</button>
+        <button id="sold-out-button" class="utility-button utility-button--warning">재료 소진</button>
+      </div>
+
+      <section class="card queue-list-card">
+        <div class="section-row"><h2>대기열</h2><span id="sync-state" class="muted">실시간 연결</span></div>
+        <div id="queue-list" class="queue-list"></div>
+      </section>
+    </section>
+    <div id="toast" class="toast hidden" role="alert"></div>
+  </main>
+
+  <dialog id="list-dialog" class="modal modal--wide"><div class="modal-shell"><div class="section-row"><h2 id="dialog-title">목록</h2><button class="icon-button" data-close>×</button></div><div id="dialog-content"></div></div></dialog>
+  <dialog id="sold-out-dialog" class="modal"><div class="modal-shell"><div class="section-row"><h2>재료 소진</h2><button class="icon-button" data-close>×</button></div><p id="sold-out-summary"></p><button data-mode="stop_new" class="choice-button"><strong>새 예약만 막기</strong><span>기존 대기 팀은 그대로 받아요.</span></button><button data-mode="cancel_waiting" class="choice-button choice-button--danger"><strong>대기 팀도 모두 취소</strong><span>모든 대기 예약에 재료 소진 사유가 기록돼요.</span></button></div></dialog>
+  <script type="module" src="./js/staff.js"></script>
+</body>
+</html>
+
