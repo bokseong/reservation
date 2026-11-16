@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { normalizeStudentId, normalizeName, csvRows, koreaDate } from './lib.js';
@@ -21,6 +22,7 @@ const QUEUED = ['waiting', 'called', 'held'];
 const ACTIVE = [...QUEUED, 'preparing', 'ready'];
 const BOOTSTRAP_ADMINS = new Set(['github.jwastro09@gmail.com']);
 const SETTINGS_REF = db.doc('settings/event');
+const CUSTOMER_PAGE_URL = 'https://bokseong.github.io/reservation/';
 
 const DEFAULT_SETTINGS = {
   eventName: '2026 복성고 학술문화제',
@@ -77,6 +79,27 @@ function parseOperationId(value) {
 
 function hashToken(token) {
   return createHash('sha256').update(String(token)).digest('hex');
+}
+
+async function sendReadyNotification(reservationId, reservation) {
+  const devices = await db.collection(`reservations/${reservationId}/notificationTokens`).get();
+  const tokens = devices.docs.map((item) => ({ ref: item.ref, token: String(item.data().fcmToken || '') })).filter((item) => item.token);
+  if (!tokens.length) return { sent: 0 };
+
+  const response = await getMessaging().sendEachForMulticast({
+    tokens: tokens.map((item) => item.token),
+    notification: {
+      title: '복성고 먹거리 · 조리 완료',
+      body: `${reservation.reservationNo} ${reservation.menuName}이(가) 준비됐어요. 지금 받아 주세요.`
+    },
+    data: { reservationId, link: CUSTOMER_PAGE_URL },
+    webpush: { fcmOptions: { link: CUSTOMER_PAGE_URL } }
+  });
+  const stale = response.responses
+    .map((result, index) => ({ result, ref: tokens[index].ref }))
+    .filter(({ result }) => ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(result.error?.code));
+  await Promise.all(stale.map(({ ref }) => ref.delete()));
+  return { sent: response.successCount };
 }
 
 function publicReservation(id, data) {
@@ -274,6 +297,20 @@ export const getCustomerReservation = checkedCall(async (request) => {
   return { reservation: publicReservation(snapshot.id, snapshot.data()) };
 });
 
+export const registerNotificationDevice = checkedCall(async (request) => {
+  const reservationId = String(request.data?.reservationId || '');
+  const customerToken = String(request.data?.customerToken || '');
+  const fcmToken = String(request.data?.fcmToken || '');
+  if (!reservationId || !/^[0-9a-f]{64}$/i.test(customerToken)) throw new HttpsError('invalid-argument', '예약 token이 올바르지 않습니다.');
+  if (fcmToken.length < 100 || fcmToken.length > 4096) throw new HttpsError('invalid-argument', '푸시 알림 token이 올바르지 않습니다.');
+  const reservationRef = db.doc(`reservations/${reservationId}`);
+  const reservation = await reservationRef.get();
+  if (!reservation.exists || reservation.data().customerTokenHash !== hashToken(customerToken)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 알림을 연결할 수 있습니다.');
+  const deviceRef = reservationRef.collection('notificationTokens').doc(hashToken(fcmToken));
+  await deviceRef.set({ fcmToken, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { ok: true };
+});
+
 export const cancelOwnReservation = checkedCall(async (request) => {
   const id = String(request.data?.reservationId || '');
   const token = String(request.data?.customerToken || '');
@@ -309,6 +346,7 @@ export const staffAction = checkedCall(async (request) => {
   const operationId = parseOperationId(request.data?.operationId);
   const eventNo = await allocateNumber('reservationEvent', 'H');
   const queueNo = action === 'hold' ? await allocateNumber('queue', 'Q') : null;
+  let completedReservation = null;
   await db.runTransaction(async (transaction) => {
     const operationRef = db.doc(`operations/${operationId}`);
     if ((await transaction.get(operationRef)).exists) return;
@@ -350,7 +388,12 @@ export const staffAction = checkedCall(async (request) => {
     updates.lastEventId = added.eventRef.id;
     transaction.update(ref, updates);
     transaction.set(operationRef, { result: { ok: true }, createdAt: FieldValue.serverTimestamp() });
+    if (action === 'cooking_complete') completedReservation = { reservationNo: reservation.reservationNo, menuName: reservation.menuName };
   });
+  if (completedReservation) {
+    try { await sendReadyNotification(reservationId, completedReservation); }
+    catch (error) { console.error('Ready notification delivery failed', { reservationId, message: error.message }); }
+  }
   return { ok: true };
 });
 

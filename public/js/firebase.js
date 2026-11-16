@@ -20,6 +20,7 @@ export const firebaseConfig = {
 // App Check를 사용할 때 Firebase Console에서 발급한 reCAPTCHA Enterprise 사이트 키를 입력하세요.
 // 빈 문자열이면 App Check 초기화를 건너뜁니다.
 export const recaptchaEnterpriseSiteKey = '6LedkSIuAAAAAHN8Rh5ZkpHmF5BKpbjsiwZIBJkF';
+export const webPushCertificateKey = 'BI6xd_cPmiD9RIMmx7wEttdAfAvFAoxjVczOewMBFAm92o6soO21jfOeofaCuIPLRcJDb9l6ffAhWe33BnqhSig';
 
 export const app = initializeApp(firebaseConfig);
 export const appCheck = initializeAppCheck(app, {

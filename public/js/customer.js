@@ -1,5 +1,6 @@
-import { functions, ensureAppCheck } from './firebase.js';
+import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebase.js?v=20261116-5';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
+import { getMessaging, getToken as getMessagingToken, isSupported, onMessage } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-messaging.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
@@ -7,11 +8,13 @@ const lookupReservation = httpsCallable(functions, 'lookupReservation');
 const getCustomerReservation = httpsCallable(functions, 'getCustomerReservation');
 const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
+const registerNotificationDevice = httpsCallable(functions, 'registerNotificationDevice');
 
 let session = readSession();
 let settings = null;
 let recoveredTimer = null;
-let lastRenderedStatus = null;
+let messaging = null;
+let foregroundMessageListener = false;
 
 function readSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
@@ -35,6 +38,32 @@ async function initialize() {
     showToast(friendlyError(error), 6000);
   } finally {
     show(qs('#loading-view'), false);
+  }
+  if (session?.reservationId && session?.token && Notification.permission === 'granted') registerPushDevice().catch(() => {});
+}
+
+async function registerPushDevice(requestPermission = false) {
+  if (!session?.reservationId || !session?.token) throw new Error('최초 예약 기기에서만 알림을 연결할 수 있습니다.');
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !(await isSupported())) throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다.');
+  let permission = Notification.permission;
+  if (permission !== 'granted' && requestPermission) permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('브라우저 알림 권한이 필요합니다.');
+
+  const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js', { scope: './' });
+  messaging ||= getMessaging(app);
+  const fcmToken = await getMessagingToken(messaging, { vapidKey: webPushCertificateKey, serviceWorkerRegistration: registration });
+  if (!fcmToken) throw new Error('푸시 알림 기기를 등록하지 못했습니다.');
+  await registerNotificationDevice({ reservationId: session.reservationId, customerToken: session.token, fcmToken, operationId: operationId() });
+  saveSession({ ...session, notificationEnabled: true });
+
+  if (!foregroundMessageListener) {
+    onMessage(messaging, (payload) => {
+      const title = payload.notification?.title || `${settings?.serviceName || '먹거리 부스'} 조리 완료`;
+      const body = payload.notification?.body || '음식이 준비됐어요. 지금 받아 주세요.';
+      showToast(body, 6000);
+      if (Notification.permission === 'granted') new Notification(title, { body });
+    });
+    foregroundMessageListener = true;
   }
 }
 
@@ -113,9 +142,6 @@ function renderReservation(reservation, recovered) {
     label.textContent = '조리 중'; value.textContent = '음식을 만들고 있어요'; help.textContent = '조리가 끝나면 이 화면에서 바로 알려드려요.';
   } else if (status === 'ready') {
     label.textContent = '조리 완료'; value.textContent = '음식이 준비됐어요'; help.textContent = '지금 부스로 와서 받아 주세요.'; panel.dataset.tone = 'success';
-    if (lastRenderedStatus !== 'ready' && 'Notification' in window && Notification.permission === 'granted') {
-      try { new Notification(`${settings?.serviceName || '먹거리 부스'} 조리 완료`, { body: `${reservation.reservationNo} 음식이 준비됐어요. 지금 받아 주세요.` }); } catch { /* 화면 알림은 계속 표시됩니다. */ }
-    }
   } else if (status === 'waiting' || status === 'held') {
     const ahead = Number(reservation.teamsAhead ?? 0);
     label.textContent = status === 'held' ? '보류 후 대기 중' : '대기 중'; value.textContent = `앞에 ${ahead}팀`; help.textContent = '화면은 자동으로 갱신됩니다.';
@@ -133,14 +159,13 @@ function renderReservation(reservation, recovered) {
 
   const canCancel = !recovered && ['waiting', 'called', 'held'].includes(status) && Boolean(session?.token);
   show(qs('#cancel-button'), canCancel);
-  const canNotify = 'Notification' in window && ['waiting', 'called', 'held', 'preparing'].includes(status);
+  const canNotify = Boolean(session?.token) && 'Notification' in window && ['waiting', 'called', 'held', 'preparing', 'ready'].includes(status);
   show(qs('#notify-button'), canNotify);
   if (canNotify) {
-    qs('#notify-button').textContent = Notification.permission === 'granted' ? '조리 완료 알림 켜짐' : '조리 완료 알림 켜기';
-    qs('#notify-button').disabled = Notification.permission === 'granted';
+    qs('#notify-button').textContent = session.notificationEnabled ? '조리 완료 푸시 알림 켜짐' : '조리 완료 푸시 알림 켜기';
+    qs('#notify-button').disabled = session.notificationEnabled;
   }
   show(qs('#readonly-hint'), recovered);
-  lastRenderedStatus = status;
   if (status === 'no_show') setTimeout(() => renderReservation(reservation, recovered), 1000);
 }
 
@@ -162,10 +187,14 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
 
 qs('#cancel-button').addEventListener('click', () => qs('#cancel-dialog').showModal());
 qs('#notify-button').addEventListener('click', async () => {
-  if (!('Notification' in window)) return;
-  const permission = await Notification.requestPermission();
-  if (permission === 'granted') { qs('#notify-button').textContent = '조리 완료 알림 켜짐'; qs('#notify-button').disabled = true; showToast('조리 완료 알림을 켰습니다.'); }
-  else showToast('브라우저에서 알림이 허용되지 않았습니다. 화면 알림은 계속 표시됩니다.');
+  try {
+    setBusy(qs('#notify-button'), true, '알림 연결 중…');
+    await registerPushDevice(true);
+    qs('#notify-button').textContent = '조리 완료 푸시 알림 켜짐';
+    qs('#notify-button').disabled = true;
+    showToast('이 기기에 조리 완료 푸시 알림을 연결했습니다.');
+  } catch (error) { showToast(error.message || '푸시 알림을 연결하지 못했습니다.', 5000); }
+  finally { if (!session?.notificationEnabled) setBusy(qs('#notify-button'), false); }
 });
 qs('#cancel-dialog').addEventListener('close', async () => {
   if (qs('#cancel-dialog').returnValue !== 'confirm') return;
