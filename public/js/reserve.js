@@ -8,6 +8,7 @@ const createReservation = httpsCallable(functions, 'createReservation');
 const lookupReservation = httpsCallable(functions, 'lookupReservation');
 let settings = null;
 let selectedMenu = '';
+let availableMenus = [];
 let currentStep = 1;
 
 function showStep(step) {
@@ -35,7 +36,8 @@ async function initialize() {
     settings = response.data;
     qs('#reserve-subtitle').textContent = `${settings.eventName || '복성고 학술문화제'} · ${settings.serviceName || '먹거리 부스'}`;
     const menus = Array.isArray(settings.menus) ? settings.menus : [];
-    qs('#menu-options').innerHTML = menus.map((menu, index) => `<label class="kiosk-menu"><input type="radio" name="menuName" value="${escapeHtml(menu)}"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">🍴</span><strong>${escapeHtml(menu)}</strong><small>선택하기</small></span></label>`).join('');
+    availableMenus = menus;
+    qs('#menu-options').innerHTML = menus.map((menu, index) => `<button type="button" class="kiosk-menu" data-menu-index="${index}" aria-pressed="false"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">🍴</span><strong>${escapeHtml(menu)}</strong><small>선택하기</small></span></button>`).join('');
     const notice = qs('#reserve-notice');
     notice.textContent = settings.notice || '';
     show(notice, Boolean(settings.notice));
@@ -48,9 +50,16 @@ async function initialize() {
   finally { show(qs('#reserve-loading'), false); }
 }
 
-qs('#menu-options').addEventListener('change', (event) => {
-  if (event.target.name !== 'menuName') return;
-  selectedMenu = event.target.value;
+qs('#menu-options').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-menu-index]');
+  if (!button) return;
+
+  selectedMenu = availableMenus[Number(button.dataset.menuIndex)] || '';
+  qs('#menu-options').querySelectorAll('.kiosk-menu').forEach((menuButton) => {
+    const isSelected = menuButton === button;
+    menuButton.classList.toggle('selected', isSelected);
+    menuButton.setAttribute('aria-pressed', String(isSelected));
+  });
   updateSummary();
 });
 
