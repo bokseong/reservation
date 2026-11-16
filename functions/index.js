@@ -156,13 +156,12 @@ async function writeOperationEvent(data) {
 export const getPublicSettings = onCall(async () => {
   const settings = await ensureSettings();
   const now = Date.now();
-  const start = settings.reservationStartAt?.toMillis?.() || 0;
   const end = settings.reservationEndAt?.toMillis?.() || Number.MAX_SAFE_INTEGER;
   return {
     eventName: settings.eventName,
     serviceName: settings.serviceName,
     acceptingReservations: settings.acceptingReservations === true,
-    acceptingNow: settings.acceptingReservations === true && now >= start && now <= end,
+    acceptingNow: settings.acceptingReservations === true && now <= end,
     reservationStartAt: settings.reservationStartAt?.toDate?.().toISOString(),
     reservationEndAt: settings.reservationEndAt?.toDate?.().toISOString(),
     notice: settings.notice || '',
@@ -193,7 +192,7 @@ export const createReservation = onCall(async (request) => {
     if (!settingsSnapshot.exists) throw new HttpsError('failed-precondition', '행사 설정이 아직 준비되지 않았습니다.');
     const settings = settingsSnapshot.data();
     const now = Date.now();
-    if (settings.acceptingReservations !== true || now < settings.reservationStartAt.toMillis() || now > settings.reservationEndAt.toMillis()) {
+    if (settings.acceptingReservations !== true || now > settings.reservationEndAt.toMillis()) {
       throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.', { canLookup: true });
     }
     const duplicate = await transaction.get(db.collection('reservations').where('studentIdNormalized', '==', studentId).limit(1));

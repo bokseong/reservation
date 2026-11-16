@@ -59,7 +59,11 @@ function renderSettings() {
       : `부스가 잠시 쉬는 중이에요 · ${settings.breakReason} · 예정 ${end.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`;
   }
   show(breakNotice, Boolean(settings.breakActive));
-  qs('#submit-button').textContent = settings.acceptingNow ? '예약하기' : '내 예약 조회';
+  const applyButton = qs('#apply-button');
+  const applyState = qs('#apply-state');
+  applyButton.disabled = !settings.acceptingNow;
+  applyState.textContent = settings.acceptingNow ? '' : '현재 새 예약 신청은 마감되었지만 기존 예약 조회는 가능합니다.';
+  show(applyState, !settings.acceptingNow);
 }
 
 function showForm() {
@@ -132,11 +136,20 @@ function renderReservation(reservation, recovered) {
 
 qs('#reservation-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const button = qs('#submit-button');
+  const action = event.submitter?.value === 'lookup' ? 'lookup' : 'apply';
+  const button = action === 'lookup' ? qs('#lookup-button') : qs('#apply-button');
   const studentId = qs('#student-id').value.trim();
   const studentName = qs('#student-name').value.trim();
   setBusy(button, true);
   try {
+    if (action === 'lookup') {
+      const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
+      saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
+      renderReservation(response.data.reservation, true);
+      startRecoveredPolling();
+      showToast('예약 정보를 불러왔어요.');
+      return;
+    }
     const token = customerToken();
     const response = await createReservation({ studentId, studentName, customerToken: token, operationId: operationId() });
     if (response.data.created) {
@@ -150,16 +163,8 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
       startRecoveredPolling();
       showToast('기존 예약을 보기 전용으로 불러왔어요.');
     }
-  } catch (error) {
-    if (error?.details?.canLookup) {
-      try {
-        const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
-        saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
-        renderReservation(response.data.reservation, true);
-        startRecoveredPolling();
-      } catch (lookupError) { showToast(friendlyError(lookupError), 5000); }
-    } else showToast(friendlyError(error), 5000);
-  } finally { setBusy(button, false); }
+  } catch (error) { showToast(friendlyError(error), 5000); }
+  finally { setBusy(button, false); }
 });
 
 qs('#cancel-button').addEventListener('click', () => qs('#cancel-dialog').showModal());

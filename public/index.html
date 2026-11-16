@@ -10,10 +10,13 @@
 </head>
 <body class="customer-page">
   <main class="shell shell--narrow">
-    <header class="brand-header">
-      <span class="eyebrow">2026 복성고 학술문화제</span>
-      <h1 id="service-title">먹거리 예약</h1>
-      <p id="service-subtitle">줄 서지 말고, 차례만 확인하세요.</p>
+    <header class="brand-header customer-header">
+      <div>
+        <span class="eyebrow">2026 복성고 학술문화제</span>
+        <h1 id="service-title">먹거리 예약</h1>
+        <p id="service-subtitle">줄 서지 말고, 차례만 확인하세요.</p>
+      </div>
+      <a class="button button--secondary admin-menu-button" href="./admin.html" aria-label="관리자 메뉴로 이동">관리자 메뉴</a>
     </header>
 
     <div id="global-notice" class="notice hidden" role="status"></div>
@@ -28,8 +31,8 @@
       <div class="section-heading">
         <span class="step-badge">01</span>
         <div>
-          <h2>예약 또는 다시 조회</h2>
-          <p>대표 학생의 학번과 이름만 입력하세요.</p>
+          <h2>예약 신청 또는 조회</h2>
+          <p>대표 학생의 학번과 이름을 입력한 뒤 원하는 기능을 선택하세요.</p>
         </div>
       </div>
       <form id="reservation-form" novalidate>
@@ -40,7 +43,11 @@
         <label>이름
           <input id="student-name" name="studentName" autocomplete="name" maxlength="20" placeholder="예: 김복성" required>
         </label>
-        <button class="button button--primary button--large" type="submit" id="submit-button">예약하기</button>
+        <div class="reservation-actions">
+          <button class="button button--primary button--large" type="submit" name="action" value="apply" id="apply-button">예약 신청</button>
+          <button class="button button--secondary button--large" type="submit" name="action" value="lookup" id="lookup-button">예약 조회</button>
+        </div>
+        <p id="apply-state" class="apply-state hidden" role="status"></p>
       </form>
       <div class="privacy-note">
         <strong>입력 정보</strong>
