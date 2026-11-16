@@ -3,6 +3,7 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
+import { getDatabase } from 'firebase-admin/database';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { normalizeStudentId, normalizeName, csvRows, koreaDate } from './lib.js';
@@ -23,6 +24,7 @@ const ACTIVE = [...QUEUED, 'preparing', 'ready'];
 const BOOTSTRAP_ADMINS = new Set(['github.jwastro09@gmail.com']);
 const SETTINGS_REF = db.doc('settings/event');
 const CUSTOMER_PAGE_URL = 'https://bokseong.github.io/reservation/';
+const rtdb = getDatabase(undefined, 'https://jw-astro09-default-rtdb.asia-southeast1.firebasedatabase.app');
 
 const DEFAULT_SETTINGS = {
   eventName: '2026 복성고 학술문화제',
@@ -95,6 +97,16 @@ function ensureAssignedMenu(profile, reservation) {
   if (!assignedMenuIds.includes(reservation.menuId)) throw new HttpsError('permission-denied', '배정된 전담 메뉴의 예약만 처리할 수 있습니다.');
 }
 
+async function writeRtdbLog(category, data) {
+  await rtdb.ref(`logs/${category}`).push({ ...data, occurredAt: Date.now() });
+}
+
+async function requiredCookUids(transaction, menuId, fallbackUid) {
+  const snapshot = await transaction.get(db.collection('staffProfiles').where('assignedMenuIds', 'array-contains', menuId));
+  const uids = snapshot.docs.filter((item) => item.data().active === true && ['staff', 'admin'].includes(item.data().role)).map((item) => item.id);
+  return uids.length ? [...new Set(uids)] : [fallbackUid];
+}
+
 async function sendReadyNotification(reservationId, reservation) {
   const devices = await db.collection(`reservations/${reservationId}/notificationTokens`).get();
   const tokens = devices.docs.map((item) => ({ ref: item.ref, token: String(item.data().fcmToken || '') })).filter((item) => item.token);
@@ -127,6 +139,8 @@ function publicReservation(id, data) {
     currentStatus: data.currentStatus,
     teamsAhead: data.teamsAhead ?? 0,
     holdCount: data.holdCount ?? 0,
+    requiredCookUids: Array.isArray(data.requiredCookUids) ? data.requiredCookUids.length : 0,
+    completedCookUids: Array.isArray(data.completedCookUids) ? data.completedCookUids.length : 0,
     cancelMemo: data.cancelMemo || null,
     missedAt: data.missedAt?.toDate?.().toISOString() || null,
     cookingStartedAt: data.cookingStartedAt?.toDate?.().toISOString() || null,
@@ -178,6 +192,8 @@ function snapshotState(data) {
     missedAt: data.missedAt || null,
     cookingStartedAt: data.cookingStartedAt || null,
     cookingCompletedAt: data.cookingCompletedAt || null,
+    requiredCookUids: data.requiredCookUids || [],
+    completedCookUids: data.completedCookUids || [],
     cancelMemo: data.cancelMemo || null
   };
 }
@@ -204,7 +220,7 @@ async function normalizeQueue(transaction, mutation = null) {
 }
 
 async function writeOperationEvent(data) {
-  await db.collection('operationEvents').add({ ...data, occurredAt: FieldValue.serverTimestamp() });
+  await Promise.all([db.collection('operationEvents').add({ ...data, occurredAt: FieldValue.serverTimestamp() }), writeRtdbLog('operations', data)]);
 }
 
 export const getPublicSettings = checkedCall(async () => {
@@ -268,7 +284,8 @@ export const createReservation = checkedCall(async (request) => {
       estimatedWaitMinutes: null, test: false,
       currentStatus: active.empty ? 'called' : 'waiting', queueOrder: queueOrderNumber, teamsAhead: active.size,
       holdCount: 0, customerUid: null, customerTokenHash: hashToken(token),
-      pickupAt: null, missedAt: null, cancelMemo: null, lastEventId: null
+      pickupAt: null, missedAt: null, cancelMemo: null, lastEventId: null,
+      requiredCookUids: [], completedCookUids: []
     };
     const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'apply', actorType: 'customer', actorUid: null, actorName: '본인', operationId, undoable: false });
     reservation.lastEventId = added.eventRef.id;
@@ -278,6 +295,7 @@ export const createReservation = checkedCall(async (request) => {
     transaction.set(operationRef, { result: operationResult, createdAt: FieldValue.serverTimestamp() });
     return operationResult;
   });
+  await writeRtdbLog('reservations', { action: 'apply', reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price });
   return result;
 });
 
@@ -342,6 +360,7 @@ export const cancelOwnReservation = checkedCall(async (request) => {
     const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'cancel', actorType: 'customer', actorUid: null, actorName: '본인', operationId, previousSnapshot, undoable: false });
     transaction.update(ref, { currentStatus: 'cancelled', teamsAhead: null, cancelMemo: '본인 취소', lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
   });
+  await writeRtdbLog('reservations', { action: 'cancel', reservationId: id, actorType: 'customer' });
   return { ok: true };
 });
 
@@ -361,6 +380,7 @@ export const staffAction = checkedCall(async (request) => {
   const eventNo = await allocateNumber('reservationEvent', 'H');
   const queueNo = action === 'hold' ? await allocateNumber('queue', 'Q') : null;
   let completedReservation = null;
+  let completionResult = { allCompleted: false, remainingCount: 0 };
   await db.runTransaction(async (transaction) => {
     const operationRef = db.doc(`operations/${operationId}`);
     if ((await transaction.get(operationRef)).exists) return;
@@ -371,7 +391,7 @@ export const staffAction = checkedCall(async (request) => {
     ensureAssignedMenu(profile, reservation);
     const settings = (await transaction.get(SETTINGS_REF)).data();
     const previousSnapshot = snapshotState(reservation);
-    let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'ready' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
+    let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'preparing' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
     let lateSeconds = null;
     if (action === 'cooking_start' && reservation.currentStatus !== 'called') {
       throw new HttpsError('failed-precondition', '지금 차례인 예약만 조리를 시작할 수 있습니다.');
@@ -392,8 +412,25 @@ export const staffAction = checkedCall(async (request) => {
     if (action !== 'hold') updates.teamsAhead = null;
     if (action === 'pickup') updates.pickupAt = FieldValue.serverTimestamp();
     if (action === 'no_show') updates.missedAt = FieldValue.serverTimestamp();
-    if (action === 'cooking_start') updates.cookingStartedAt = FieldValue.serverTimestamp();
-    if (action === 'cooking_complete') updates.cookingCompletedAt = FieldValue.serverTimestamp();
+    if (action === 'cooking_start') {
+      updates.cookingStartedAt = FieldValue.serverTimestamp();
+      updates.requiredCookUids = await requiredCookUids(transaction, reservation.menuId, profile.uid);
+      updates.completedCookUids = [];
+    }
+    if (action === 'cooking_complete') {
+      const required = Array.isArray(reservation.requiredCookUids) && reservation.requiredCookUids.length ? reservation.requiredCookUids : [profile.uid];
+      if (!required.includes(profile.uid)) throw new HttpsError('permission-denied', '이 메뉴의 조리 완료 담당자가 아닙니다.');
+      const completed = [...new Set([...(Array.isArray(reservation.completedCookUids) ? reservation.completedCookUids : []), profile.uid])];
+      const remainingCount = required.filter((uid) => !completed.includes(uid)).length;
+      updates.requiredCookUids = required;
+      updates.completedCookUids = completed;
+      completionResult = { allCompleted: remainingCount === 0, remainingCount };
+      if (remainingCount === 0) {
+        updates.currentStatus = 'ready';
+        updates.cookingCompletedAt = FieldValue.serverTimestamp();
+        completedReservation = { reservationNo: reservation.reservationNo, menuName: reservation.menuName };
+      }
+    }
     if (action === 'cancel') updates.cancelMemo = '직원 취소';
     if (action === 'hold') {
       updates.queueOrder = Number(queueNo.split('-')[1]); updates.holdCount = FieldValue.increment(1);
@@ -403,13 +440,13 @@ export const staffAction = checkedCall(async (request) => {
     updates.lastEventId = added.eventRef.id;
     transaction.update(ref, updates);
     transaction.set(operationRef, { result: { ok: true }, createdAt: FieldValue.serverTimestamp() });
-    if (action === 'cooking_complete') completedReservation = { reservationNo: reservation.reservationNo, menuName: reservation.menuName };
   });
+  await writeRtdbLog('reservations', { action, reservationId, actorUid: profile.uid, actorName: profile.name, allCompleted: completionResult.allCompleted, remainingCount: completionResult.remainingCount });
   if (completedReservation) {
     try { await sendReadyNotification(reservationId, completedReservation); }
     catch (error) { console.error('Ready notification delivery failed', { reservationId, message: error.message }); }
   }
-  return { ok: true };
+  return { ok: true, ...completionResult };
 });
 
 export const undoReservationEvent = checkedCall(async (request) => {
@@ -550,6 +587,18 @@ export const exportCsv = checkedCall({ timeoutSeconds: 120, memory: '512MiB' }, 
   await getProfile(request, 'admin');
   const type = String(request.data?.type || '');
   const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  if (type === 'all') {
+    const [reservations, events, operations, rtdbLogs] = await Promise.all([
+      db.collection('reservations').get(), db.collection('reservationEvents').get(), db.collection('operationEvents').get(), rtdb.ref('logs').once('value')
+    ]);
+    const rows = [
+      ...reservations.docs.map((item) => ['Firestore', `reservations/${item.id}`, JSON.stringify(item.data())]),
+      ...events.docs.map((item) => ['Firestore', `reservationEvents/${item.id}`, JSON.stringify(item.data())]),
+      ...operations.docs.map((item) => ['Firestore', `operationEvents/${item.id}`, JSON.stringify(item.data())]),
+      ...Object.entries(rtdbLogs.val() || {}).flatMap(([category, entries]) => Object.entries(entries || {}).map(([id, value]) => ['Realtime Database', `logs/${category}/${id}`, JSON.stringify(value)]))
+    ];
+    return { filename: `전체데이터_${date}.csv`, content: csvRows(['저장소', '경로', '데이터(JSON)'], rows) };
+  }
   if (type === 'events') {
     const snapshot = await db.collection('reservationEvents').orderBy('occurredAt').get();
     const headers = ['기록번호', '예약번호', '종류', '시각', '처리자', '대상기록', '늦음(초)', '메모'];

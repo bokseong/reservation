@@ -107,14 +107,15 @@ function renderOperations() {
   const currentLabels = { preparing: '조리 중', ready: '조리 완료 · 수령 대기', called: '지금 차례', waiting: '지금 차례', held: '보류 후 차례' };
   qs('#admin-current-label').textContent = current ? (currentLabels[current.currentStatus] || statusText(current.currentStatus)) : '지금 차례';
   qs('#admin-current-reservation').textContent = current?.reservationNo || '대기 팀 없음';
-  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}` : '';
+  const completion = current?.currentStatus === 'preparing' && Number(current.requiredCookUids?.length || 0) > 0 ? ` · 조리 확인 ${current.completedCookUids?.length || 0}/${current.requiredCookUids.length}` : '';
+  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}${completion}` : '';
 
   qsa('[data-admin-action]').forEach((button) => {
     const action = button.dataset.adminAction;
     const status = current?.currentStatus;
     const enabled = Boolean(current) && (
       (action === 'cooking_start' && status === 'called') ||
-      (action === 'cooking_complete' && status === 'preparing') ||
+      (action === 'cooking_complete' && status === 'preparing' && !(current.completedCookUids || []).includes(profile?.uid)) ||
       (action === 'pickup' && ['called', 'preparing', 'ready'].includes(status)) ||
       (['no_show', 'hold'].includes(action) && status === 'called') ||
       action === 'cancel'
@@ -177,8 +178,8 @@ qsa('[data-admin-action]').forEach((button) => button.addEventListener('click', 
   if (!confirm(`${labels[button.dataset.adminAction]} 처리할까요?`)) return;
   setBusy(button, true);
   try {
-    await staffAction({ reservationId: button.dataset.reservationId, action: button.dataset.adminAction, operationId: operationId() });
-    showToast(`${labels[button.dataset.adminAction]} 처리했습니다.`);
+    const response = await staffAction({ reservationId: button.dataset.reservationId, action: button.dataset.adminAction, operationId: operationId() });
+    showToast(button.dataset.adminAction === 'cooking_complete' && !response.data.allCompleted ? `조리 완료를 확인했습니다. 남은 담당자 ${response.data.remainingCount}명` : `${labels[button.dataset.adminAction]} 처리했습니다.`);
   } catch (error) { showToast(friendlyError(error), 5000); }
   finally { setBusy(button, false); }
 }));

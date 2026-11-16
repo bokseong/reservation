@@ -124,6 +124,13 @@ async function startRecoveredPolling() {
 }
 
 function renderReservation(reservation, recovered) {
+  if (['picked_up', 'cancelled'].includes(reservation.currentStatus)) {
+    saveSession(null);
+    clearInterval(recoveredTimer);
+    showForm();
+    showToast(reservation.currentStatus === 'picked_up' ? '수령 처리가 완료되어 이 기기의 예약 표시를 정리했습니다.' : '처리된 예약이라 화면에서 정리했습니다.');
+    return;
+  }
   show(qs('#form-view'), false);
   show(qs('#reservation-view'), true);
   qs('#reservation-no').textContent = reservation.reservationNo;

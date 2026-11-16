@@ -29,7 +29,7 @@
 
       <section data-settings-panel="staff" class="hidden"><div class="admin-grid"><form id="settings-staff-create" class="card"><h2>관리자 계정 추가</h2><label>표시 이름<input name="name" required maxlength="30"></label><label>이메일<input name="email" type="email" required></label><label>임시 비밀번호<input name="password" type="password" required minlength="8"></label><label>등급<select name="role"><option value="staff">2급 관리자</option><option value="admin">1급 관리자</option></select></label><fieldset class="menu-assignment"><legend>전담 메뉴</legend><p>2급 관리자는 배정한 메뉴 예약만 조회·조리 처리할 수 있습니다.</p><div id="settings-new-staff-menus" class="menu-assignment__choices"></div></fieldset><button class="button button--primary">계정 만들기</button></form><section class="card"><h2>권한 · 전담 메뉴 관리</h2><p>등급과 전담 메뉴 변경은 이 1급 관리자 전용 페이지에서만 할 수 있습니다.</p><div id="settings-staff-list" class="data-list"></div></section></div></section>
 
-      <section data-settings-panel="export" class="hidden"><section class="card export-card"><h2>CSV 내보내기</h2><p>Asia/Seoul 시간대와 UTF-8 BOM을 적용합니다.</p><div class="export-grid"><button data-settings-export="events" class="button button--secondary">이력 CSV</button><button data-settings-export="operations" class="button button--secondary">운영기록 CSV</button><button data-settings-export="summary" class="button button--primary">요약 CSV</button></div></section></section>
+      <section data-settings-panel="export" class="hidden"><section class="card export-card"><h2>CSV 내보내기</h2><p>Firestore 기본 데이터와 Realtime Database 로그를 함께 추출할 수 있습니다.</p><div class="export-grid"><button data-settings-export="events" class="button button--secondary">이력 CSV</button><button data-settings-export="operations" class="button button--secondary">운영기록 CSV</button><button data-settings-export="summary" class="button button--primary">요약 CSV</button><button data-settings-export="all" class="button button--secondary">전체 데이터 CSV</button></div></section></section>
     </section>
     <div id="toast" class="toast hidden" role="alert"></div>
   </main>
@@ -37,6 +37,6 @@
     <p>이 사이트는 reCAPTCHA로 보호되며 Google <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">개인정보처리방침</a> 및 <a href="https://policies.google.com/terms" target="_blank" rel="noopener noreferrer">서비스 약관</a>이 적용됩니다.</p>
     <p>© 2026 복성고 학술문화제. All rights reserved.</p>
   </footer>
-  <script type="module" src="./js/settings.js?v=20261117-3"></script>
+  <script type="module" src="./js/settings.js?v=20261117-5"></script>
 </body>
 </html>
