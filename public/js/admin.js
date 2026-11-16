@@ -16,6 +16,7 @@ const undoReservationEvent = httpsCallable(functions, 'undoReservationEvent');
 const setSoldOut = httpsCallable(functions, 'setSoldOut');
 
 let settings = {};
+let profile = null;
 let reservations = [];
 let staff = [];
 let events = [];
@@ -26,7 +27,11 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 async function loadAdmin() {
   try {
     const response = await getStaffSession();
-    if (response.data.profile.role !== 'admin') throw new Error('1급 관리자만 접근할 수 있습니다.');
+    profile = response.data.profile;
+    const isAdmin1 = profile.role === 'admin';
+    qs('#admin-role-label').textContent = isAdmin1 ? (profile.absoluteAdmin ? '절대 관리자 · 1급' : '1급 관리자') : '2급 관리자';
+    show(qs('#settings-link'), isAdmin1);
+    qsa('.admin-only-control').forEach((element) => show(element, isAdmin1));
     show(qs('#admin-login'), false); show(qs('#admin-view'), true); subscribeData();
   } catch (error) {
     await signOut(auth); qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true);
@@ -38,9 +43,9 @@ function subscribeData() {
   unsubscribers = [
     onSnapshot(doc(db, 'settings', 'event'), (snapshot) => { settings = snapshot.data() || {}; renderSettings(); renderOperations(); }),
     onSnapshot(query(collection(db, 'reservations'), orderBy('createdAt', 'desc')), (snapshot) => { reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReservations(); renderStats(); renderOperations(); }),
-    onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); }),
     onSnapshot(query(collection(db, 'reservationEvents'), orderBy('occurredAt', 'desc'), limit(50)), (snapshot) => { events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderOperations(); })
   ];
+  if (profile?.role === 'admin') unsubscribers.push(onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); }));
 }
 
 function renderStats() {
@@ -116,15 +121,14 @@ function renderSettings() {
   form.elements.reservationStartAt.value = toDateTimeLocal(settings.reservationStartAt);
   form.elements.reservationEndAt.value = toDateTimeLocal(settings.reservationEndAt);
   form.elements.acceptingReservations.checked = settings.acceptingReservations === true;
-  show(qs('#break-active-panel'), Boolean(settings.breakActive));
-  show(qs('#break-form'), !settings.breakActive);
-  if (settings.breakActive) qs('#break-active-text').textContent = `${settings.breakReason} · 예정 종료 ${formatDateTime(settings.breakPlannedEndAt)}`;
+  show(qs('#break-active-panel'), false);
+  show(qs('#break-form'), false);
 }
 
 function renderStaff() {
   qs('#staff-list').innerHTML = staff.map((item) => {
     const absolute = item.absoluteAdmin === true || String(item.email || '').toLowerCase() === 'github.jwastro09@gmail.com';
-    return `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 직원'} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-staff-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></div>`;
+    return `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 관리자'} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-staff-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></div>`;
   }).join('') || '<div class="empty-state">직원이 없습니다.</div>';
 }
 
@@ -272,6 +276,6 @@ qs('#admin-logout').addEventListener('click', () => signOut(auth));
 onAuthStateChanged(auth, (user) => {
   unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = [];
   if (user && !user.isAnonymous) loadAdmin();
-  else { show(qs('#admin-login'), true); show(qs('#admin-view'), false); }
+  else { profile = null; show(qs('#admin-login'), true); show(qs('#admin-view'), false); }
 });
 

@@ -4,13 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111111">
-  <title>1급 관리자 · 복성고 예약</title>
+  <title>관리자 운영 · 복성고 예약</title>
   <link rel="stylesheet" href="./css/app.css">
 </head>
 <body class="admin-page">
   <main class="shell shell--wide">
     <section id="admin-login" class="auth-card card">
-      <span class="eyebrow">ADMIN ACCESS</span><h1>1급 관리자 로그인</h1><p>설정 변경은 모두 운영 기록에 남습니다.</p>
+      <span class="eyebrow">ADMIN ACCESS</span><h1>관리자 로그인</h1><p>1급·2급 관리자 계정으로 로그인하세요.</p>
       <button id="admin-google-login" class="button button--google button--large">Google로 로그인</button>
       <div class="form-divider"><span>또는 이메일 로그인</span></div>
       <form id="admin-login-form"><label>이메일<input id="admin-email" type="email" autocomplete="username" required></label><label>비밀번호<input id="admin-password" type="password" autocomplete="current-password" required></label><button class="button button--primary button--large">이메일로 로그인</button></form>
@@ -18,11 +18,11 @@
     </section>
 
     <section id="admin-view" class="hidden">
-      <header class="staff-header"><div><span class="eyebrow">1급 관리자</span><h1>예약 운영실</h1></div><div class="header-actions"><a class="button button--secondary" href="./staff.html">직원 화면</a><button id="admin-logout" class="button button--text">로그아웃</button></div></header>
-      <nav class="tabs" aria-label="관리 메뉴"><button data-tab="operations" class="active">운영</button><button data-tab="overview">현황</button><button data-tab="settings">설정</button><button data-tab="staff">직원</button><button data-tab="export">내보내기</button></nav>
+      <header class="staff-header"><div><span id="admin-role-label" class="eyebrow">관리자</span><h1>예약 운영실</h1></div><div class="header-actions"><a id="settings-link" class="button button--secondary hidden" href="./settings.html">설정 페이지</a><button id="admin-logout" class="button button--text">로그아웃</button></div></header>
+      <nav class="tabs" aria-label="관리 메뉴"><button data-tab="operations" class="active">운영</button><button data-tab="overview">예약 조회</button></nav>
 
       <section data-panel="operations">
-        <section class="card operations-toolbar">
+        <section class="card operations-toolbar admin-only-control">
           <div><span class="eyebrow">예약 접수</span><h2 id="admin-accepting-label">상태 확인 중</h2><p id="admin-accepting-help">고객 신청 가능 상태를 불러오고 있습니다.</p></div>
           <div class="button-row"><button id="open-reservations" class="button button--primary">예약 접수 시작</button><button id="close-reservations" class="button button--danger-outline">예약 접수 중지</button></div>
         </section>
@@ -32,13 +32,13 @@
           <div class="action-grid admin-action-grid">
             <button data-admin-action="cooking_start" class="action-button action-button--cooking">조리 시작</button>
             <button data-admin-action="cooking_complete" class="action-button action-button--ready">조리 완료</button>
-            <button data-admin-action="pickup" class="action-button action-button--pickup">수령 완료</button>
-            <button data-admin-action="no_show" class="action-button">미수령</button>
-            <button data-admin-action="hold" class="action-button">보류</button>
-            <button data-admin-action="cancel" class="action-button action-button--danger">취소</button>
+            <button data-admin-action="pickup" class="action-button action-button--pickup admin-only-control">수령 완료</button>
+            <button data-admin-action="no_show" class="action-button admin-only-control">미수령</button>
+            <button data-admin-action="hold" class="action-button admin-only-control">보류</button>
+            <button data-admin-action="cancel" class="action-button action-button--danger admin-only-control">취소</button>
           </div>
         </section>
-        <div class="utility-grid">
+        <div class="utility-grid admin-only-control">
           <button id="admin-no-show-button" class="utility-button"><span>미수령</span><b id="admin-no-show-count">0</b></button>
           <button id="admin-history-button" class="utility-button">최근 기록</button>
           <button id="admin-sold-out-button" class="utility-button utility-button--warning">재료 소진</button>
@@ -50,7 +50,7 @@
         <div class="stats-grid"><article class="stat-card"><span>대기</span><strong id="stat-waiting">0</strong></article><article class="stat-card"><span>수령</span><strong id="stat-picked">0</strong></article><article class="stat-card"><span>미수령</span><strong id="stat-missed">0</strong></article><article class="stat-card"><span>취소</span><strong id="stat-cancelled">0</strong></article></div>
         <div class="admin-grid">
           <section class="card"><div class="section-row"><h2>예약 검색</h2></div><div class="search-controls"><input id="reservation-search" class="search-input" placeholder="예약번호 · 학번 · 이름"><select id="reservation-menu-filter" aria-label="메뉴 필터"><option value="">전체 메뉴</option></select></div><div id="admin-reservations" class="data-list"></div></section>
-          <section class="card"><h2>쉬는 시간</h2><div id="break-active-panel" class="hidden"><p id="break-active-text"></p><div class="button-row"><button id="extend-break" class="button button--secondary">5분 연장</button><button id="end-break" class="button button--danger-outline">지금 끝내기</button></div></div><form id="break-form"><label>사유<input id="break-reason" maxlength="30" placeholder="기기 오작동"></label><div class="quick-reasons"><button type="button">기기 오작동</button><button type="button">직원 휴게 시간</button><button type="button">재료 준비 중</button></div><label>예정 시간 <output id="break-minutes-output">10분</output><input id="break-minutes" type="range" min="1" max="60" value="10"></label><button class="button button--primary">쉬는 시간 시작</button></form></section>
+          <section class="card admin-only-control"><h2>쉬는 시간</h2><p>쉬는 시간 설정은 설정 페이지에서 관리합니다.</p><a class="button button--secondary" href="./settings.html">설정 페이지로 이동</a><div id="break-active-panel" class="hidden"><p id="break-active-text"></p></div><form id="break-form" class="hidden"><input id="break-reason"><input id="break-minutes" type="range" value="10"><output id="break-minutes-output"></output><button>시작</button></form><button id="extend-break" class="hidden">연장</button><button id="end-break" class="hidden">종료</button></section>
         </div>
       </section>
 

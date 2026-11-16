@@ -313,6 +313,7 @@ export const staffAction = onCall(async (request) => {
   const reservationId = String(request.data?.reservationId || '');
   const action = String(request.data?.action || '');
   if (!['cooking_start', 'cooking_complete', 'pickup', 'no_show', 'hold', 'cancel'].includes(action)) throw new HttpsError('invalid-argument', '지원하지 않는 처리입니다.');
+  if (profile.role !== 'admin' && !['cooking_start', 'cooking_complete'].includes(action)) throw new HttpsError('permission-denied', '2급 관리자는 조리 상태만 변경할 수 있습니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const eventNo = await allocateNumber('reservationEvent', 'H');
   const queueNo = action === 'hold' ? await allocateNumber('queue', 'Q') : null;
@@ -362,7 +363,7 @@ export const staffAction = onCall(async (request) => {
 });
 
 export const undoReservationEvent = onCall(async (request) => {
-  const profile = await getProfile(request);
+  const profile = await getProfile(request, 'admin');
   const eventId = String(request.data?.eventId || '');
   const operationId = parseOperationId(request.data?.operationId);
   const eventNo = await allocateNumber('reservationEvent', 'H');
@@ -385,7 +386,7 @@ export const undoReservationEvent = onCall(async (request) => {
 });
 
 export const setSoldOut = onCall(async (request) => {
-  const profile = await getProfile(request);
+  const profile = await getProfile(request, 'admin');
   const mode = String(request.data?.mode || '');
   if (!['stop_new', 'cancel_waiting', 'reopen'].includes(mode)) throw new HttpsError('invalid-argument', '지원하지 않는 모드입니다.');
   const operationId = parseOperationId(request.data?.operationId);

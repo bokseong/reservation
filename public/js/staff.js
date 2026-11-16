@@ -27,6 +27,8 @@ async function loadStaff(user) {
   try {
     const response = await getStaffSession();
     profile = response.data.profile;
+    location.replace('./admin.html');
+    return;
     show(qs('#login-view'), false);
     show(qs('#staff-view'), true);
     qs('#staff-meta').textContent = `${profile.name}로 로그인 · ${profile.role === 'admin' ? '1급' : '2급'}`;

@@ -42,7 +42,7 @@ service cloud.firestore {
     }
 
     match /staffProfiles/{uid} {
-      allow read: if isStaff() || (signedIn() && request.auth.uid == uid);
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
       allow write: if false;
     }
 
