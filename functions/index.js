@@ -11,7 +11,8 @@ setGlobalOptions({ region: 'asia-northeast3', maxInstances: 20, timeoutSeconds: 
 
 const db = getFirestore('reservation');
 const auth = getAuth();
-const ACTIVE = ['waiting', 'called', 'held'];
+const QUEUED = ['waiting', 'called', 'held'];
+const ACTIVE = [...QUEUED, 'preparing', 'ready'];
 const BOOTSTRAP_ADMINS = new Set(['github.jwastro09@gmail.com']);
 const SETTINGS_REF = db.doc('settings/event');
 
@@ -82,6 +83,8 @@ function publicReservation(id, data) {
     holdCount: data.holdCount ?? 0,
     cancelMemo: data.cancelMemo || null,
     missedAt: data.missedAt?.toDate?.().toISOString() || null,
+    cookingStartedAt: data.cookingStartedAt?.toDate?.().toISOString() || null,
+    cookingCompletedAt: data.cookingCompletedAt?.toDate?.().toISOString() || null,
     createdAt: data.createdAt?.toDate?.().toISOString() || null
   };
 }
@@ -127,6 +130,8 @@ function snapshotState(data) {
     holdCount: data.holdCount ?? 0,
     pickupAt: data.pickupAt || null,
     missedAt: data.missedAt || null,
+    cookingStartedAt: data.cookingStartedAt || null,
+    cookingCompletedAt: data.cookingCompletedAt || null,
     cancelMemo: data.cancelMemo || null
   };
 }
@@ -145,7 +150,10 @@ async function normalizeQueue(transaction, mutation = null) {
     queue.push(mutation.restore);
     queue.sort((a, b) => Number(a.queueOrder || 0) - Number(b.queueOrder || 0));
   }
-  queue.forEach((item, index) => transaction.set(item.ref, { currentStatus: index === 0 ? 'called' : 'waiting', teamsAhead: index, queueOrder: item.queueOrder }, { merge: true }));
+  queue.forEach((item, index) => {
+    const currentStatus = index === 0 && ['preparing', 'ready'].includes(item.currentStatus) ? item.currentStatus : index === 0 ? 'called' : 'waiting';
+    transaction.set(item.ref, { currentStatus, teamsAhead: index, queueOrder: item.queueOrder }, { merge: true });
+  });
   return queue;
 }
 
@@ -264,7 +272,7 @@ export const cancelOwnReservation = onCall(async (request) => {
     if (!snapshot.exists) throw new HttpsError('not-found', '예약이 없습니다.');
     const reservation = snapshot.data();
     if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 취소할 수 있습니다.');
-    if (!ACTIVE.includes(reservation.currentStatus)) throw new HttpsError('failed-precondition', '현재 상태에서는 취소할 수 없습니다.');
+    if (!QUEUED.includes(reservation.currentStatus)) throw new HttpsError('failed-precondition', '조리가 시작되기 전 예약만 취소할 수 있습니다.');
     const previousSnapshot = snapshotState(reservation);
     await normalizeQueue(transaction, { removeId: id });
     const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'cancel', actorType: 'customer', actorUid: null, actorName: '본인', operationId, previousSnapshot, undoable: false });
@@ -283,7 +291,7 @@ export const staffAction = onCall(async (request) => {
   const profile = await getProfile(request);
   const reservationId = String(request.data?.reservationId || '');
   const action = String(request.data?.action || '');
-  if (!['pickup', 'no_show', 'hold', 'cancel'].includes(action)) throw new HttpsError('invalid-argument', '지원하지 않는 처리입니다.');
+  if (!['cooking_start', 'cooking_complete', 'pickup', 'no_show', 'hold', 'cancel'].includes(action)) throw new HttpsError('invalid-argument', '지원하지 않는 처리입니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const eventNo = await allocateNumber('reservationEvent', 'H');
   const queueNo = action === 'hold' ? await allocateNumber('queue', 'Q') : null;
@@ -296,12 +304,17 @@ export const staffAction = onCall(async (request) => {
     const reservation = snapshot.data();
     const settings = (await transaction.get(SETTINGS_REF)).data();
     const previousSnapshot = snapshotState(reservation);
-    let nextStatus = action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
+    let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'ready' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
     let lateSeconds = null;
-    if (reservation.currentStatus === 'no_show' && action === 'pickup') {
+    if (action === 'cooking_start' && reservation.currentStatus !== 'called') {
+      throw new HttpsError('failed-precondition', '지금 차례인 예약만 조리를 시작할 수 있습니다.');
+    } else if (action === 'cooking_complete' && reservation.currentStatus !== 'preparing') {
+      throw new HttpsError('failed-precondition', '조리 중인 예약만 조리 완료할 수 있습니다.');
+    } else if (reservation.currentStatus === 'no_show' && action === 'pickup') {
       lateSeconds = Math.floor((Date.now() - reservation.missedAt.toMillis()) / 1000);
       if (lateSeconds > Number(settings.noShowGraceSeconds || 60)) throw new HttpsError('failed-precondition', '미수령 후 수령 가능 시간이 지났습니다.');
     } else if (!ACTIVE.includes(reservation.currentStatus)) throw new HttpsError('failed-precondition', '현재 상태에서는 처리할 수 없습니다.');
+    if (['no_show', 'hold'].includes(action) && reservation.currentStatus !== 'called') throw new HttpsError('failed-precondition', '지금 차례인 예약만 처리할 수 있습니다.');
     if (action === 'hold') {
       if (reservation.holdCount >= Number(settings.maxHoldCount || 2)) throw new HttpsError('failed-precondition', '보류 최대 횟수를 넘었습니다.');
       const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE));
@@ -312,11 +325,13 @@ export const staffAction = onCall(async (request) => {
     if (action !== 'hold') updates.teamsAhead = null;
     if (action === 'pickup') updates.pickupAt = FieldValue.serverTimestamp();
     if (action === 'no_show') updates.missedAt = FieldValue.serverTimestamp();
+    if (action === 'cooking_start') updates.cookingStartedAt = FieldValue.serverTimestamp();
+    if (action === 'cooking_complete') updates.cookingCompletedAt = FieldValue.serverTimestamp();
     if (action === 'cancel') updates.cancelMemo = '직원 취소';
     if (action === 'hold') {
       updates.queueOrder = Number(queueNo.split('-')[1]); updates.holdCount = FieldValue.increment(1);
       await normalizeQueue(transaction, { moveToEndId: reservationId, queueOrder: updates.queueOrder });
-    } else if (ACTIVE.includes(reservation.currentStatus)) await normalizeQueue(transaction, { removeId: reservationId });
+    } else if (['pickup', 'no_show', 'cancel'].includes(action) && ACTIVE.includes(reservation.currentStatus)) await normalizeQueue(transaction, { removeId: reservationId });
     const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type, actorType: 'staff', actorUid: profile.uid, actorName: profile.name, operationId, previousSnapshot, lateSeconds, memo: action === 'cancel' ? '직원 취소' : null, undoable: true });
     updates.lastEventId = added.eventRef.id;
     transaction.update(ref, updates);
@@ -356,12 +371,12 @@ export const setSoldOut = onCall(async (request) => {
   await SETTINGS_REF.set({ acceptingReservations: mode === 'reopen', updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   let cancelled = 0;
   if (mode === 'cancel_waiting') {
-    const active = await db.collection('reservations').where('currentStatus', 'in', ACTIVE).get();
+    const active = await db.collection('reservations').where('currentStatus', 'in', QUEUED).get();
     for (const document of active.docs) {
       const eventNo = await allocateNumber('reservationEvent', 'H');
       await db.runTransaction(async (transaction) => {
         const fresh = await transaction.get(document.ref);
-        if (!fresh.exists || !ACTIVE.includes(fresh.data().currentStatus)) return;
+        if (!fresh.exists || !QUEUED.includes(fresh.data().currentStatus)) return;
         const reservation = fresh.data();
         const added = await addReservationEvent(transaction, document.ref, reservation, { eventNo, type: 'cancel', actorType: 'staff', actorUid: profile.uid, actorName: profile.name, operationId, previousSnapshot: snapshotState(reservation), memo: '재료 소진', undoable: true });
         transaction.update(document.ref, { currentStatus: 'cancelled', teamsAhead: null, cancelMemo: '재료 소진', lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });

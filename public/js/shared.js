@@ -82,6 +82,6 @@ export function setBusy(button, busy, label = '처리 중…') {
 }
 
 export function statusText(status) {
-  return ({ waiting: '대기 중', called: '지금 차례', held: '보류', picked_up: '수령 완료', no_show: '미수령', cancelled: '취소됨', expired: '만료됨', apply: '신청', pickup: '수령', cancel: '취소', undo: '되돌리기', relookup: '다시조회' })[status] || status;
+  return ({ waiting: '대기 중', called: '지금 차례', held: '보류', preparing: '조리 중', ready: '조리 완료', picked_up: '수령 완료', no_show: '미수령', cancelled: '취소됨', expired: '만료됨', apply: '신청', cooking_start: '조리 시작', cooking_complete: '조리 완료', pickup: '수령', cancel: '취소', undo: '되돌리기', relookup: '다시조회' })[status] || status;
 }
 

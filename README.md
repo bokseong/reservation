@@ -2,9 +2,9 @@
 
 2026 복성고 학술문화제 먹거리 부스 1곳의 예약·대기열·수령·운영 기록을 관리하는 웹 시스템입니다.
 
-- 고객: `index.html` — 사전 예약 신청, 예약/복구 조회, 대기 상태 실시간 확인, 최초 기기 취소
+- 고객: `index.html` — 사전 예약 신청, 예약/복구 조회, 조리 상태·완료 알림, 대기 상태 실시간 확인, 최초 기기 취소
 - 직원: `staff.html` — 수령·미수령·보류·취소, 기록 되돌리기, 재료 소진
-- 1급 관리자: `admin.html` — 행사 설정, 쉬는 시간, 직원 계정, 검색, CSV 3종
+- 1급 관리자: `admin.html` — 예약 접수 제어, 조리 시작·완료, 수령·미수령·보류·취소, 재료 소진, 행사 설정, 쉬는 시간, 직원 계정, 검색, CSV 3종
 - 데이터: Firebase 프로젝트 `hs-bokseong`의 named Firestore database `reservation`
 - 서버: Cloud Functions 2nd gen (`asia-northeast3`)
 - 정적 배포: <https://bokseong.github.io/reservation/>

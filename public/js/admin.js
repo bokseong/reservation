@@ -1,7 +1,7 @@
 import { auth, appCheck, db, functions } from './firebase-config.js';
 import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-app-check.js';
-import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
+import { collection, doc, onSnapshot, orderBy, query, limit } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, statusText, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
 
@@ -11,10 +11,14 @@ const manageBreak = httpsCallable(functions, 'manageBreak');
 const createStaffUser = httpsCallable(functions, 'createStaffUser');
 const updateStaffProfile = httpsCallable(functions, 'updateStaffProfile');
 const exportCsv = httpsCallable(functions, 'exportCsv');
+const staffAction = httpsCallable(functions, 'staffAction');
+const undoReservationEvent = httpsCallable(functions, 'undoReservationEvent');
+const setSoldOut = httpsCallable(functions, 'setSoldOut');
 
 let settings = {};
 let reservations = [];
 let staff = [];
+let events = [];
 let unsubscribers = [];
 
 async function loadAdmin() {
@@ -30,18 +34,66 @@ async function loadAdmin() {
 function subscribeData() {
   unsubscribers.forEach((unsubscribe) => unsubscribe());
   unsubscribers = [
-    onSnapshot(doc(db, 'settings', 'event'), (snapshot) => { settings = snapshot.data() || {}; renderSettings(); }),
-    onSnapshot(query(collection(db, 'reservations'), orderBy('createdAt', 'desc')), (snapshot) => { reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReservations(); renderStats(); }),
-    onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); })
+    onSnapshot(doc(db, 'settings', 'event'), (snapshot) => { settings = snapshot.data() || {}; renderSettings(); renderOperations(); }),
+    onSnapshot(query(collection(db, 'reservations'), orderBy('createdAt', 'desc')), (snapshot) => { reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReservations(); renderStats(); renderOperations(); }),
+    onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); }),
+    onSnapshot(query(collection(db, 'reservationEvents'), orderBy('occurredAt', 'desc'), limit(50)), (snapshot) => { events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderOperations(); })
   ];
 }
 
 function renderStats() {
   const count = (statuses) => reservations.filter((item) => statuses.includes(item.currentStatus)).length;
-  qs('#stat-waiting').textContent = count(['waiting', 'called', 'held']);
+  qs('#stat-waiting').textContent = count(['waiting', 'called', 'held', 'preparing', 'ready']);
   qs('#stat-picked').textContent = count(['picked_up']);
   qs('#stat-missed').textContent = count(['no_show', 'expired']);
   qs('#stat-cancelled').textContent = count(['cancelled']);
+}
+
+function activeQueue() {
+  return reservations
+    .filter((item) => ['waiting', 'called', 'held', 'preparing', 'ready'].includes(item.currentStatus))
+    .sort((a, b) => Number(a.queueOrder || 0) - Number(b.queueOrder || 0));
+}
+
+function renderOperations() {
+  const queue = activeQueue();
+  const current = queue[0];
+  const accepting = settings.acceptingReservations === true;
+  qs('#admin-accepting-label').textContent = accepting ? '예약 접수 중' : '예약 접수 중지됨';
+  qs('#admin-accepting-help').textContent = accepting ? '고객 화면에서 새 예약을 신청할 수 있습니다.' : '기존 예약 조회와 대기열 처리는 계속됩니다.';
+  qs('#open-reservations').disabled = accepting;
+  qs('#close-reservations').disabled = !accepting;
+  qs('#admin-queue-count').textContent = queue.length;
+  qs('#admin-no-show-count').textContent = events.filter((item) => item.type === 'no_show').length;
+
+  const breakNotice = qs('#admin-break-notice');
+  breakNotice.textContent = settings.breakActive ? `쉬는 중 · ${settings.breakReason || ''} · 예정 종료 ${formatDateTime(settings.breakPlannedEndAt)}` : '';
+  show(breakNotice, Boolean(settings.breakActive));
+
+  const currentLabels = { preparing: '조리 중', ready: '조리 완료 · 수령 대기', called: '지금 차례', waiting: '지금 차례', held: '보류 후 차례' };
+  qs('#admin-current-label').textContent = current ? (currentLabels[current.currentStatus] || statusText(current.currentStatus)) : '지금 차례';
+  qs('#admin-current-reservation').textContent = current?.reservationNo || '대기 팀 없음';
+  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName}` : '';
+
+  qsa('[data-admin-action]').forEach((button) => {
+    const action = button.dataset.adminAction;
+    const status = current?.currentStatus;
+    const enabled = Boolean(current) && (
+      (action === 'cooking_start' && status === 'called') ||
+      (action === 'cooking_complete' && status === 'preparing') ||
+      (action === 'pickup' && ['called', 'preparing', 'ready'].includes(status)) ||
+      (['no_show', 'hold'].includes(action) && status === 'called') ||
+      action === 'cancel'
+    ) && !(action === 'hold' && (queue.length <= 1 || Number(current?.holdCount || 0) >= Number(settings.maxHoldCount || 2)));
+    button.disabled = !enabled;
+    button.dataset.reservationId = current?.id || '';
+  });
+
+  qs('#admin-queue-list').innerHTML = queue.length ? queue.map((item, index) => `
+    <div class="queue-item ${index === 0 ? 'queue-item--called' : ''}">
+      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
+      <span>${index === 0 ? statusText(item.currentStatus) : `앞 ${index}팀`}</span>
+    </div>`).join('') : '<div class="empty-state">현재 대기 중인 팀이 없습니다.</div>';
 }
 
 function renderReservations() {
@@ -70,6 +122,78 @@ qsa('[data-tab]').forEach((button) => button.addEventListener('click', () => {
   qsa('[data-panel]').forEach((panel) => show(panel, panel.dataset.panel === button.dataset.tab));
 }));
 qs('#reservation-search').addEventListener('input', renderReservations);
+
+qsa('[data-admin-action]').forEach((button) => button.addEventListener('click', async () => {
+  if (!button.dataset.reservationId) return;
+  const labels = { cooking_start: '조리 시작', cooking_complete: '조리 완료', pickup: '수령 완료', no_show: '미수령', hold: '보류', cancel: '취소' };
+  if (!confirm(`${labels[button.dataset.adminAction]} 처리할까요?`)) return;
+  setBusy(button, true);
+  try {
+    await staffAction({ reservationId: button.dataset.reservationId, action: button.dataset.adminAction, operationId: operationId() });
+    showToast(`${labels[button.dataset.adminAction]} 처리했습니다.`);
+  } catch (error) { showToast(friendlyError(error), 5000); }
+  finally { setBusy(button, false); }
+}));
+
+qs('#open-reservations').addEventListener('click', async () => {
+  try { await setSoldOut({ mode: 'reopen', operationId: operationId() }); showToast('예약 접수를 시작했습니다.'); }
+  catch (error) { showToast(friendlyError(error), 5000); }
+});
+qs('#close-reservations').addEventListener('click', async () => {
+  if (!confirm('새 예약 접수를 중지할까요? 기존 대기 팀은 유지됩니다.')) return;
+  try { await setSoldOut({ mode: 'stop_new', operationId: operationId() }); showToast('새 예약 접수를 중지했습니다.'); }
+  catch (error) { showToast(friendlyError(error), 5000); }
+});
+
+qs('#admin-history-button').addEventListener('click', () => {
+  qs('#admin-dialog-title').textContent = '최근 처리 기록';
+  qs('#admin-dialog-content').innerHTML = events.length ? events.map((item) => `
+    <div class="data-row"><div><strong>${escapeHtml(item.eventNo)} · ${escapeHtml(item.reservationNo)} · ${statusText(item.type)}</strong><span>${formatDateTime(item.occurredAt)} · ${escapeHtml(item.actorNameSnapshot || '')}</span></div>
+    ${item.undoable ? `<button class="button button--secondary" data-admin-undo="${item.id}">되돌리기</button>` : ''}</div>`).join('') : '<div class="empty-state">기록이 없습니다.</div>';
+  qs('#admin-list-dialog').showModal();
+});
+
+qs('#admin-no-show-button').addEventListener('click', () => {
+  const recent = events.filter((item) => item.type === 'no_show');
+  qs('#admin-dialog-title').textContent = '미수령 목록';
+  qs('#admin-dialog-content').innerHTML = recent.length ? recent.map((item) => {
+    const occurred = item.occurredAt?.toDate?.() || new Date(item.occurredAt);
+    const elapsed = Math.floor((Date.now() - occurred.getTime()) / 1000);
+    const canPickup = elapsed <= Number(settings.noShowGraceSeconds || 60);
+    return `<div class="data-row"><div><strong>${escapeHtml(item.reservationNo)}</strong><span>${formatDateTime(item.occurredAt)} · ${canPickup ? `${Math.max(0, Number(settings.noShowGraceSeconds || 60) - elapsed)}초 남음` : '만료됨'}</span></div>${canPickup ? `<button class="button button--primary" data-admin-late-pickup="${item.reservationId}">수령</button>` : ''}</div>`;
+  }).join('') : '<div class="empty-state">미수령 팀이 없습니다.</div>';
+  qs('#admin-list-dialog').showModal();
+});
+
+qs('#admin-dialog-content').addEventListener('click', async (event) => {
+  const undoButton = event.target.closest('[data-admin-undo]');
+  const pickupButton = event.target.closest('[data-admin-late-pickup]');
+  try {
+    if (undoButton) {
+      if (!confirm('이 기록을 되돌릴까요? 원래 기록은 삭제되지 않습니다.')) return;
+      await undoReservationEvent({ eventId: undoButton.dataset.adminUndo, operationId: operationId() });
+      qs('#admin-list-dialog').close(); showToast('되돌리기 기록을 추가했습니다.');
+    }
+    if (pickupButton) {
+      await staffAction({ reservationId: pickupButton.dataset.adminLatePickup, action: 'pickup', operationId: operationId() });
+      qs('#admin-list-dialog').close(); showToast('늦은 수령으로 처리했습니다.');
+    }
+  } catch (error) { showToast(friendlyError(error), 5000); }
+});
+
+qs('#admin-sold-out-button').addEventListener('click', () => {
+  qs('#admin-sold-out-summary').textContent = `현재 대기 ${activeQueue().length}팀 · ${settings.acceptingReservations ? '예약 접수 중' : '새 예약 마감'}`;
+  qs('#admin-sold-out-dialog').showModal();
+});
+qsa('[data-admin-mode]').forEach((button) => button.addEventListener('click', async () => {
+  const cancelWaiting = button.dataset.adminMode === 'cancel_waiting';
+  if (!confirm(cancelWaiting ? '대기 팀을 모두 재료 소진으로 취소할까요?' : '새 예약만 막을까요?')) return;
+  try {
+    await setSoldOut({ mode: button.dataset.adminMode, operationId: operationId() });
+    qs('#admin-sold-out-dialog').close(); showToast('재료 소진 상태를 반영했습니다.');
+  } catch (error) { showToast(friendlyError(error), 5000); }
+}));
+qsa('[data-admin-close]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
 
 qs('#settings-form').addEventListener('submit', async (event) => {
   event.preventDefault(); const button = event.submitter; setBusy(button, true);

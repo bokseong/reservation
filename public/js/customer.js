@@ -12,6 +12,7 @@ const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 let session = readSession();
 let settings = null;
 let recoveredTimer = null;
+let lastRenderedStatus = null;
 
 function readSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
@@ -113,6 +114,13 @@ function renderReservation(reservation, recovered) {
 
   if (status === 'called') {
     label.textContent = '호출됨'; value.textContent = '지금 내 차례'; help.textContent = '부스로 와서 음식을 받아 주세요.'; panel.dataset.tone = 'success';
+  } else if (status === 'preparing') {
+    label.textContent = '조리 중'; value.textContent = '음식을 만들고 있어요'; help.textContent = '조리가 끝나면 이 화면에서 바로 알려드려요.';
+  } else if (status === 'ready') {
+    label.textContent = '조리 완료'; value.textContent = '음식이 준비됐어요'; help.textContent = '지금 부스로 와서 받아 주세요.'; panel.dataset.tone = 'success';
+    if (lastRenderedStatus !== 'ready' && 'Notification' in window && Notification.permission === 'granted') {
+      try { new Notification(`${settings?.serviceName || '먹거리 부스'} 조리 완료`, { body: `${reservation.reservationNo} 음식이 준비됐어요. 지금 받아 주세요.` }); } catch { /* 화면 알림은 계속 표시됩니다. */ }
+    }
   } else if (status === 'waiting' || status === 'held') {
     const ahead = Number(reservation.teamsAhead ?? 0);
     label.textContent = status === 'held' ? '보류 후 대기 중' : '대기 중'; value.textContent = `앞에 ${ahead}팀`; help.textContent = '화면은 자동으로 갱신됩니다.';
@@ -130,7 +138,14 @@ function renderReservation(reservation, recovered) {
 
   const canCancel = !recovered && ['waiting', 'called', 'held'].includes(status) && Boolean(session?.token);
   show(qs('#cancel-button'), canCancel);
+  const canNotify = 'Notification' in window && ['waiting', 'called', 'held', 'preparing'].includes(status);
+  show(qs('#notify-button'), canNotify);
+  if (canNotify) {
+    qs('#notify-button').textContent = Notification.permission === 'granted' ? '조리 완료 알림 켜짐' : '조리 완료 알림 켜기';
+    qs('#notify-button').disabled = Notification.permission === 'granted';
+  }
   show(qs('#readonly-hint'), recovered);
+  lastRenderedStatus = status;
   if (status === 'no_show') setTimeout(() => renderReservation(reservation, recovered), 1000);
 }
 
@@ -168,6 +183,12 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
 });
 
 qs('#cancel-button').addEventListener('click', () => qs('#cancel-dialog').showModal());
+qs('#notify-button').addEventListener('click', async () => {
+  if (!('Notification' in window)) return;
+  const permission = await Notification.requestPermission();
+  if (permission === 'granted') { qs('#notify-button').textContent = '조리 완료 알림 켜짐'; qs('#notify-button').disabled = true; showToast('조리 완료 알림을 켰습니다.'); }
+  else showToast('브라우저에서 알림이 허용되지 않았습니다. 화면 알림은 계속 표시됩니다.');
+});
 qs('#cancel-dialog').addEventListener('close', async () => {
   if (qs('#cancel-dialog').returnValue !== 'confirm') return;
   try {

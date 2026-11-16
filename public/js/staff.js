@@ -45,7 +45,7 @@ function subscribeData() {
     settings = snapshot.exists() ? snapshot.data() : {};
     renderSettings();
   }));
-  const activeQuery = query(collection(db, 'reservations'), where('currentStatus', 'in', ['waiting', 'called', 'held']), orderBy('queueOrder'));
+  const activeQuery = query(collection(db, 'reservations'), where('currentStatus', 'in', ['waiting', 'called', 'held', 'preparing', 'ready']), orderBy('queueOrder'));
   unsubscribers.push(onSnapshot(activeQuery, (snapshot) => {
     reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
     renderQueue();
@@ -71,7 +71,7 @@ function renderSettings() {
 }
 
 function renderQueue() {
-  const called = reservations.find((item) => item.currentStatus === 'called') || reservations[0];
+  const called = reservations.find((item) => ['called', 'preparing', 'ready'].includes(item.currentStatus)) || reservations[0];
   qs('#queue-count').textContent = reservations.length;
   if (called) {
     qs('#current-reservation').textContent = called.reservationNo;
@@ -81,7 +81,8 @@ function renderQueue() {
     qs('#current-student').textContent = '';
   }
   qsa('[data-action]').forEach((button) => {
-    button.disabled = !called || (button.dataset.action === 'hold' && reservations.length <= 1) || (button.dataset.action === 'hold' && called.holdCount >= (settings?.maxHoldCount ?? 2));
+    const needsCalled = ['no_show', 'hold'].includes(button.dataset.action);
+    button.disabled = !called || (needsCalled && called.currentStatus !== 'called') || (button.dataset.action === 'hold' && reservations.length <= 1) || (button.dataset.action === 'hold' && called.holdCount >= (settings?.maxHoldCount ?? 2));
     button.dataset.reservationId = called?.id || '';
   });
   qs('#queue-list').innerHTML = reservations.length ? reservations.map((item, index) => `

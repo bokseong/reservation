@@ -86,6 +86,7 @@ small { color: var(--muted); font-weight: 500; }
 .status-panel[data-tone="success"] { border-color: rgba(85,230,165,.35); background: rgba(85,230,165,.06); }
 .status-panel[data-tone="danger"] { border-color: rgba(255,95,98,.35); background: rgba(255,95,98,.06); }
 .readonly-hint { margin: 14px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+#notify-button { width: 100%; margin-bottom: 10px; }
 #forget-button { display: flex; margin: 8px auto 0; }
 
 .spinner { width: 34px; height: 34px; margin: 0 auto 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -115,6 +116,8 @@ small { color: var(--muted); font-weight: 500; }
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .action-button { min-height: 108px; border: 1px solid var(--line); border-radius: 15px; background: #0e0e0e; color: var(--text); cursor: pointer; font-size: 22px; font-weight: 900; }
 .action-button--pickup { border-color: rgba(85,230,165,.45); background: rgba(85,230,165,.08); color: var(--success); }
+.action-button--cooking { border-color: rgba(255,176,0,.45); background: rgba(255,176,0,.08); color: #ffd06b; }
+.action-button--ready { border-color: rgba(74,163,255,.45); background: rgba(74,163,255,.08); color: #8cc5ff; }
 .action-button--danger { color: #ff8f91; }
 .utility-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0 18px; }
 .utility-button { min-height: 62px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); color: var(--text); cursor: pointer; font-weight: 800; }
@@ -150,6 +153,11 @@ small { color: var(--muted); font-weight: 500; }
 .data-row__actions { display: flex; gap: 6px; }
 .data-row__actions button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 11px; }
 .export-card { max-width: 760px; }
+.operations-toolbar { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 16px; }
+.operations-toolbar h2, .operations-toolbar p { margin-bottom: 0; }
+.operations-toolbar .button--danger-outline { width: auto; }
+.admin-current-card { margin-bottom: 10px; }
+.admin-action-grid { grid-template-columns: repeat(3, 1fr); }
 .export-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 24px; }
 
 @media (max-width: 760px) {
@@ -157,6 +165,7 @@ small { color: var(--muted); font-weight: 500; }
   .span-2 { grid-column: auto; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .export-grid { grid-template-columns: 1fr; }
+  .admin-action-grid { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 520px) {
@@ -172,6 +181,7 @@ small { color: var(--muted); font-weight: 500; }
   .customer-header { gap: 10px; }
   .admin-menu-button { min-height: 38px; padding: 8px 10px; font-size: 12px; }
   .reservation-actions { grid-template-columns: 1fr; }
+  .operations-toolbar { align-items: flex-start; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {
