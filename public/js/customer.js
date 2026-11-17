@@ -2,7 +2,8 @@ import { app, functions, ensureAppCheck, webPushCertificateKey } from './firebas
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, show, operationId, friendlyError, showToast, setBusy } from './shared.js';
 
-const STORAGE_KEY = 'bokseong-reservation-session-v1';
+const STORAGE_KEY = 'bokseong-reservation-sessions-v2';
+const LEGACY_STORAGE_KEY = 'bokseong-reservation-session-v1';
 const lookupReservation = httpsCallable(functions, 'lookupReservation');
 const getCustomerReservation = httpsCallable(functions, 'getCustomerReservation');
 const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
@@ -10,20 +11,56 @@ const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const registerNotificationDevice = httpsCallable(functions, 'registerNotificationDevice');
 const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
 
-let session = readSession();
+let sessions = readSessions();
+let session = sessions.find((item) => item?.token) || sessions[0] || null;
 let settings = null;
 let recoveredTimer = null;
 let messaging = null;
 let foregroundMessageListener = false;
+let recoveredReservations = [];
 
-function readSession() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; }
+function readSessions() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (Array.isArray(value)) return value.filter((item) => item?.reservationId);
+  } catch { /* Fall through to legacy storage. */ }
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
+    return legacy?.reservationId ? [legacy] : [];
+  } catch { return []; }
 }
 
 function saveSession(value) {
-  session = value;
-  if (value) localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  else localStorage.removeItem(STORAGE_KEY);
+  if (value) {
+    sessions = [value, ...sessions.filter((item) => item?.reservationId !== value.reservationId)].slice(0, 10);
+    session = value;
+  } else if (session?.reservationId) {
+    sessions = sessions.filter((item) => item?.reservationId !== session.reservationId);
+    session = sessions.find((item) => item?.token) || sessions[0] || null;
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+}
+
+function selectSession(reservationId) {
+  const next = sessions.find((item) => item?.reservationId === reservationId)
+    || recoveredReservations.find((item) => item.id === reservationId);
+  if (!next) return;
+  session = next.token ? next : { reservationId: next.id, studentId: next.studentId, studentName: next.studentName, recovered: true };
+  if (session.token) startTokenPolling();
+  else startRecoveredPolling();
+}
+
+function renderSavedReservations() {
+  const element = qs('#saved-reservations');
+  const items = [...sessions.filter((item) => item?.token), ...recoveredReservations.map((item) => ({ ...item, reservationId: item.id, recovered: true }))];
+  const unique = items.filter((item, index) => items.findIndex((other) => (other.reservationId || other.id) === (item.reservationId || item.id)) === index);
+  element.innerHTML = unique.map((item) => {
+    const id = item.reservationId || item.id;
+    const active = id === session?.reservationId;
+    return `<button type="button" class="button button--secondary" data-saved-reservation="${id}" ${active ? 'disabled' : ''}>${item.reservationNo || '저장된 예약'}${item.menuName ? ` · ${item.menuName}` : ''}</button>`;
+  }).join('');
+  show(element, unique.length > 1);
 }
 
 async function initialize() {
@@ -105,7 +142,10 @@ function startTokenPolling() {
       const response = await getCustomerReservation({ reservationId: session.reservationId, customerToken: session.token });
       renderReservation(response.data.reservation, false);
     } catch (error) {
-      if (error?.code?.includes('not-found') || error?.code?.includes('permission-denied')) { saveSession(null); showForm(); }
+      if (error?.code?.includes('not-found') || error?.code?.includes('permission-denied')) {
+        saveSession(null);
+        if (session?.token) startTokenPolling(); else showForm();
+      }
       else showToast(friendlyError(error));
     }
   };
@@ -117,7 +157,9 @@ async function startRecoveredPolling() {
   const refresh = async () => {
     try {
       const response = await lookupReservation({ studentId: session.studentId, studentName: session.studentName, operationId: operationId(), recordLookup: false });
-      renderReservation(response.data.reservation, true);
+      recoveredReservations = (response.data.reservations || [response.data.reservation]).map((item) => ({ ...item, studentId: session.studentId, studentName: session.studentName }));
+      const reservation = recoveredReservations.find((item) => item.id === session.reservationId) || response.data.reservation;
+      renderReservation(reservation, true);
     } catch (error) { showToast(friendlyError(error)); }
   };
   await refresh();
@@ -128,7 +170,7 @@ function renderReservation(reservation, recovered) {
   if (['picked_up', 'cancelled'].includes(reservation.currentStatus)) {
     saveSession(null);
     clearInterval(recoveredTimer);
-    showForm();
+    if (session?.token) startTokenPolling(); else showForm();
     showToast(reservation.currentStatus === 'picked_up' ? '수령 처리가 완료되어 이 기기의 예약 표시를 정리했습니다.' : '처리된 예약이라 화면에서 정리했습니다.');
     return;
   }
@@ -179,6 +221,8 @@ function renderReservation(reservation, recovered) {
     qs('#notify-button').disabled = session.notificationEnabled;
   }
   show(qs('#readonly-hint'), recovered);
+  if (!recovered && session?.token) saveSession({ ...session, reservationNo: reservation.reservationNo, menuName: reservation.menuName });
+  renderSavedReservations();
   if (status === 'no_show') setTimeout(() => renderReservation(reservation, recovered), 1000);
 }
 
@@ -190,7 +234,8 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
   setBusy(button, true);
   try {
     const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
-    saveSession({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true });
+    recoveredReservations = (response.data.reservations || [response.data.reservation]).map((item) => ({ ...item, studentId, studentName }));
+    session = { reservationId: response.data.reservation.id, studentId, studentName, recovered: true };
     renderReservation(response.data.reservation, true);
     startRecoveredPolling();
     showToast('예약 정보를 불러왔어요.');
@@ -230,7 +275,12 @@ qs('#cancel-dialog').addEventListener('close', async () => {
 });
 
 qs('#forget-button').addEventListener('click', () => {
-  saveSession(null); clearInterval(recoveredTimer); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
+  sessions = []; session = null; recoveredReservations = []; localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(LEGACY_STORAGE_KEY); clearInterval(recoveredTimer); showForm(); showToast('이 폰에 저장된 예약 정보를 지웠어요.');
+});
+
+qs('#saved-reservations').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-saved-reservation]');
+  if (button) selectSession(button.dataset.savedReservation);
 });
 
 initialize();

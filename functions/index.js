@@ -123,10 +123,10 @@ async function writeRtdbLog(category, data) {
   await rtdb.ref(`logs/${category}`).push({ ...data, occurredAt: Date.now() });
 }
 
-async function requiredCookUids(transaction, menuId, fallbackUid) {
+async function requiredCookUids(transaction, menuId) {
   const snapshot = await transaction.get(db.collection('staffProfiles').where('assignedMenuIds', 'array-contains', menuId));
   const uids = snapshot.docs.filter((item) => item.data().active === true && ['staff', 'admin'].includes(item.data().role)).map((item) => item.id);
-  return uids.length ? [...new Set(uids)] : [fallbackUid];
+  return [...new Set(uids)];
 }
 
 async function sendReadyNotification(reservationId, reservation) {
@@ -234,11 +234,19 @@ async function normalizeQueue(transaction, mutation = null) {
     queue.push(mutation.restore);
     queue.sort((a, b) => Number(a.queueOrder || 0) - Number(b.queueOrder || 0));
   }
-  queue.forEach((item, index) => {
+  for (let index = 0; index < queue.length; index += 1) {
+    const item = queue[index];
     // A paid first order is considered to be in the kitchen immediately. Only staff completion can make it ready.
-    const currentStatus = index === 0 && ['preparing', 'ready'].includes(item.currentStatus) ? item.currentStatus : index === 0 ? 'preparing' : 'waiting';
-    transaction.set(item.ref, { currentStatus, teamsAhead: index, queueOrder: item.queueOrder }, { merge: true });
-  });
+    const promoteToPreparing = index === 0 && !['preparing', 'ready'].includes(item.currentStatus);
+    const currentStatus = promoteToPreparing ? 'preparing' : index === 0 ? item.currentStatus : 'waiting';
+    const updates = { currentStatus, teamsAhead: index, queueOrder: item.queueOrder };
+    if (promoteToPreparing) {
+      updates.requiredCookUids = await requiredCookUids(transaction, item.menuId);
+      updates.completedCookUids = [];
+      updates.cookingStartedAt = FieldValue.serverTimestamp();
+    }
+    transaction.set(item.ref, updates, { merge: true });
+  }
   return queue;
 }
 
@@ -291,6 +299,14 @@ export const createReservation = checkedCall(async (request) => {
     if (settings.acceptingReservations !== true || now > settings.reservationEndAt.toMillis()) {
       throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.');
     }
+    const sameStudent = await transaction.get(db.collection('reservations').where('studentIdNormalized', '==', studentId));
+    const pending = sameStudent.docs.filter((item) => {
+      const data = item.data();
+      return data.currentStatus === 'payment_pending' && (now - (data.createdAt?.toMillis?.() || 0)) < 15 * 60 * 1000;
+    });
+    if (pending.length >= 3) throw new HttpsError('resource-exhausted', '미결제 예약은 최대 3건까지 만들 수 있습니다. 기존 예약을 결제하거나 15분 뒤 다시 시도해 주세요.');
+    const recent = sameStudent.docs.some((item) => now - (item.data().createdAt?.toMillis?.() || 0) < 15 * 1000);
+    if (recent) throw new HttpsError('resource-exhausted', '연속 예약은 15초 뒤에 다시 시도해 주세요.');
     const ref = db.collection('reservations').doc();
     const reservation = {
       reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price,
@@ -323,6 +339,7 @@ export const startReservationPayment = checkedCall({ secrets: [reservationPaymen
   const reservation = snapshot.data();
   if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 결제를 시작할 수 있습니다.');
   if (reservation.currentStatus !== 'payment_pending') throw new HttpsError('failed-precondition', '결제를 시작할 수 있는 예약 상태가 아닙니다.');
+  if (reservation.paymentCheckoutId && reservation.paymentUrl) return { paymentUrl: reservation.paymentUrl };
   const payload = JSON.stringify({ reservationId, reservationNo: reservation.reservationNo, amount: Number(reservation.menuPrice), menuName: reservation.menuName });
   const timestamp = String(Date.now());
   let response;
@@ -331,7 +348,7 @@ export const startReservationPayment = checkedCall({ secrets: [reservationPaymen
   } catch { throw new HttpsError('unavailable', '결제 서비스를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.checkoutId || !data.paymentUrl) throw new HttpsError('failed-precondition', data.error || '결제 요청을 준비하지 못했습니다.');
-  await reservationRef.set({ paymentStatus: 'checkout_created', paymentCheckoutId: data.checkoutId, paymentStartedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await reservationRef.set({ paymentStatus: 'checkout_created', paymentCheckoutId: data.checkoutId, paymentUrl: data.paymentUrl, paymentStartedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return { paymentUrl: data.paymentUrl };
 });
 
@@ -353,8 +370,9 @@ export const confirmBankPayment = onRequest({ region: 'asia-northeast3', secrets
       const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE).orderBy('queueOrder'));
       const queueOrder = Number(queueNo.split('-')[1]);
       const currentStatus = active.empty ? 'preparing' : 'waiting';
+      const requiredCookUids = active.empty ? await requiredCookUids(transaction, reservation.menuId) : [];
       const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'payment_confirmed', actorType: 'system', actorUid: null, actorName: '축제은행', operationId: `bank-${transactionId}`, undoable: false });
-      transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, requiredCookUids, completedCookUids: [], cookingStartedAt: active.empty ? FieldValue.serverTimestamp() : null, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
       completed = true;
     });
     if (completed) await writeRtdbLog('reservations', { action: 'payment_confirmed', reservationId, checkoutId, transactionId, amount });
@@ -384,7 +402,7 @@ export const lookupReservation = checkedCall(async (request) => {
       transaction.update(document.ref, { lastEventId: added.eventRef.id, relookupCount: FieldValue.increment(1) });
     });
   }
-  return { reservation: publicReservation(document.id, document.data()), recoveredViewOnly: true };
+  return { reservation: publicReservation(document.id, document.data()), reservations: documents.map((item) => publicReservation(item.id, item.data())), recoveredViewOnly: true };
 });
 
 export const getCustomerReservation = checkedCall(async (request) => {
@@ -461,7 +479,7 @@ export const staffAction = checkedCall(async (request) => {
     const previousSnapshot = snapshotState(reservation);
     let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'preparing' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
     let lateSeconds = null;
-    if (action === 'cooking_start' && !['called', 'preparing'].includes(reservation.currentStatus)) {
+    if (action === 'cooking_start' && !(reservation.currentStatus === 'called' || (reservation.currentStatus === 'preparing' && !(reservation.requiredCookUids || []).length))) {
       throw new HttpsError('failed-precondition', '지금 조리할 수 있는 예약만 조리 시작 처리할 수 있습니다.');
     } else if (action === 'cooking_complete' && reservation.currentStatus !== 'preparing') {
       throw new HttpsError('failed-precondition', '조리 중인 예약만 조리 완료할 수 있습니다.');
@@ -482,11 +500,12 @@ export const staffAction = checkedCall(async (request) => {
     if (action === 'no_show') updates.missedAt = FieldValue.serverTimestamp();
     if (action === 'cooking_start') {
       updates.cookingStartedAt = FieldValue.serverTimestamp();
-      updates.requiredCookUids = await requiredCookUids(transaction, reservation.menuId, profile.uid);
+      updates.requiredCookUids = await requiredCookUids(transaction, reservation.menuId);
       updates.completedCookUids = [];
     }
     if (action === 'cooking_complete') {
-      const required = Array.isArray(reservation.requiredCookUids) && reservation.requiredCookUids.length ? reservation.requiredCookUids : [profile.uid];
+      const required = Array.isArray(reservation.requiredCookUids) ? reservation.requiredCookUids : [];
+      if (!required.length) throw new HttpsError('failed-precondition', '이 메뉴에 활성화된 조리 담당자가 없습니다. 설정에서 전담 메뉴를 배정해 주세요.');
       if (!required.includes(profile.uid)) throw new HttpsError('permission-denied', '이 메뉴의 조리 완료 담당자가 아닙니다.');
       const completed = [...new Set([...(Array.isArray(reservation.completedCookUids) ? reservation.completedCookUids : []), profile.uid])];
       const remainingCount = required.filter((uid) => !completed.includes(uid)).length;

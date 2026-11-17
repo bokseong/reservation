@@ -114,7 +114,7 @@ function renderOperations() {
     const action = button.dataset.adminAction;
     const status = current?.currentStatus;
     const enabled = Boolean(current) && (
-      (action === 'cooking_start' && status === 'called') ||
+      (action === 'cooking_start' && (status === 'called' || (status === 'preparing' && !(current.requiredCookUids || []).length))) ||
       (action === 'cooking_complete' && status === 'preparing' && !(current.completedCookUids || []).includes(profile?.uid)) ||
       (action === 'pickup' && ['called', 'preparing', 'ready'].includes(status)) ||
       (['no_show', 'hold'].includes(action) && status === 'called') ||

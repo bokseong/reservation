@@ -3,7 +3,8 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebas
 import { qs, show, escapeHtml, customerToken, operationId, friendlyError, showToast, setBusy } from './shared.js';
 import { availableMenuItems, formatPrice } from './menu.js';
 
-const STORAGE_KEY = 'bokseong-reservation-session-v1';
+const STORAGE_KEY = 'bokseong-reservation-sessions-v2';
+const LEGACY_STORAGE_KEY = 'bokseong-reservation-session-v1';
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const createReservation = httpsCallable(functions, 'createReservation');
 const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
@@ -11,6 +12,15 @@ let settings = null;
 let selectedMenu = '';
 let availableMenus = [];
 let currentStep = 1;
+
+function rememberReservation(value) {
+  let sessions = [];
+  try { sessions = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { sessions = []; }
+  if (!Array.isArray(sessions)) sessions = [];
+  sessions = [value, ...sessions.filter((item) => item?.reservationId !== value.reservationId)].slice(0, 10);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
+}
 
 function showStep(step) {
   currentStep = step;
@@ -97,7 +107,7 @@ qs('#reserve-form').addEventListener('submit', async (event) => {
   setBusy(button, true);
   try {
     const response = await createReservation({ menuId, studentId, studentName, customerToken: token, operationId: operationId() });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ reservationId: response.data.reservation.id, token }));
+    rememberReservation({ reservationId: response.data.reservation.id, token, reservationNo: response.data.reservation.reservationNo, menuName: response.data.reservation.menuName });
     const payment = await startReservationPayment({ reservationId: response.data.reservation.id, customerToken: token });
     location.assign(payment.data.paymentUrl);
   } catch (error) { showToast(friendlyError(error), 5000); }
