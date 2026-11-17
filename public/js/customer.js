@@ -147,10 +147,10 @@ function renderReservation(reservation, recovered) {
 
   if (status === 'payment_pending') {
     label.textContent = '결제 확인 중'; value.textContent = '대기열 등록 전'; help.textContent = '축제은행 결제 확인 후 자동으로 예약 대기열에 등록됩니다.';
-  } else if (status === 'called') {
-    label.textContent = '호출됨'; value.textContent = '지금 내 차례'; help.textContent = '부스로 와서 음식을 받아 주세요.'; panel.dataset.tone = 'success';
-  } else if (status === 'preparing') {
-    label.textContent = '조리 중'; value.textContent = '음식을 만들고 있어요'; help.textContent = '조리가 끝나면 이 화면에서 바로 알려드려요.';
+  } else if (status === 'called' || status === 'preparing') {
+    // `called` is retained for legacy records, but customer-facing status uses the new cooking-first flow.
+    const ahead = Number(reservation.teamsAhead ?? 0);
+    label.textContent = '조리 중'; value.textContent = `앞에 ${ahead}팀`; help.textContent = '음식을 조리하고 있어요. 조리가 끝나면 이 화면에서 바로 알려드려요.';
   } else if (status === 'ready') {
     label.textContent = '조리 완료'; value.textContent = '음식이 준비됐어요'; help.textContent = '지금 부스로 와서 받아 주세요.'; panel.dataset.tone = 'success';
   } else if (status === 'waiting' || status === 'held') {

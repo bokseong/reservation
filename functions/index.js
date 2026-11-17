@@ -235,7 +235,8 @@ async function normalizeQueue(transaction, mutation = null) {
     queue.sort((a, b) => Number(a.queueOrder || 0) - Number(b.queueOrder || 0));
   }
   queue.forEach((item, index) => {
-    const currentStatus = index === 0 && ['preparing', 'ready'].includes(item.currentStatus) ? item.currentStatus : index === 0 ? 'called' : 'waiting';
+    // A paid first order is considered to be in the kitchen immediately. Only staff completion can make it ready.
+    const currentStatus = index === 0 && ['preparing', 'ready'].includes(item.currentStatus) ? item.currentStatus : index === 0 ? 'preparing' : 'waiting';
     transaction.set(item.ref, { currentStatus, teamsAhead: index, queueOrder: item.queueOrder }, { merge: true });
   });
   return queue;
@@ -357,7 +358,7 @@ export const confirmBankPayment = onRequest({ region: 'asia-northeast3', secrets
       if (reservation.currentStatus !== 'payment_pending' || reservation.paymentCheckoutId !== checkoutId || Number(reservation.menuPrice) !== amount) throw new HttpsError('failed-precondition', '예약 결제 상태가 일치하지 않습니다.');
       const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE).orderBy('queueOrder'));
       const queueOrder = Number(queueNo.split('-')[1]);
-      const currentStatus = active.empty ? 'called' : 'waiting';
+      const currentStatus = active.empty ? 'preparing' : 'waiting';
       const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'payment_confirmed', actorType: 'system', actorUid: null, actorName: '축제은행', operationId: `bank-${transactionId}`, undoable: false });
       transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
       completed = true;
@@ -463,8 +464,8 @@ export const staffAction = checkedCall(async (request) => {
     const previousSnapshot = snapshotState(reservation);
     let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'preparing' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
     let lateSeconds = null;
-    if (action === 'cooking_start' && reservation.currentStatus !== 'called') {
-      throw new HttpsError('failed-precondition', '지금 차례인 예약만 조리를 시작할 수 있습니다.');
+    if (action === 'cooking_start' && !['called', 'preparing'].includes(reservation.currentStatus)) {
+      throw new HttpsError('failed-precondition', '지금 조리할 수 있는 예약만 조리 시작 처리할 수 있습니다.');
     } else if (action === 'cooking_complete' && reservation.currentStatus !== 'preparing') {
       throw new HttpsError('failed-precondition', '조리 중인 예약만 조리 완료할 수 있습니다.');
     } else if (reservation.currentStatus === 'no_show' && action === 'pickup') {
