@@ -25,6 +25,12 @@ let unsubscribers = [];
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
+function orderText(item) {
+  return Array.isArray(item.items) && item.items.length
+    ? item.items.map((orderItem) => `${orderItem.name} ×${orderItem.quantity}`).join(', ')
+    : item.menuName || settings.serviceName || '';
+}
+
 function setAdminAccess(authorized) {
   const login = qs('#admin-login');
   const view = qs('#admin-view');
@@ -111,7 +117,7 @@ function renderOperations() {
   const currentLabels = { preparing: '조리 중', ready: '조리 완료 · 수령 대기', called: '지금 차례', waiting: '지금 차례', held: '보류 후 차례' };
   qs('#admin-current-label').textContent = current ? (currentLabels[current.currentStatus] || statusText(current.currentStatus)) : '지금 차례';
   qs('#admin-current-reservation').textContent = current?.reservationNo || '대기 팀 없음';
-  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}` : '';
+  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${orderText(current)}` : '';
 
   qsa('[data-admin-action]').forEach((button) => {
     const action = button.dataset.adminAction;
@@ -129,7 +135,7 @@ function renderOperations() {
 
   qs('#admin-queue-list').innerHTML = queue.length ? queue.map((item, index) => `
     <div class="queue-item ${index === 0 ? 'queue-item--called' : ''}">
-      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(item.menuName || settings.serviceName || '')} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
+      <div><strong>${index + 1}. ${escapeHtml(item.reservationNo)} · ${escapeHtml(item.studentName)}</strong><span>${escapeHtml(item.studentIdNormalized)} · ${escapeHtml(orderText(item))} · ${statusText(item.currentStatus)} · 보류 ${item.holdCount || 0}회</span></div>
       <span>${index === 0 ? statusText(item.currentStatus) : `앞 ${index}팀`}</span>
     </div>`).join('') : '<div class="empty-state">현재 대기 중인 팀이 없습니다.</div>';
 }
@@ -137,13 +143,13 @@ function renderOperations() {
 function renderReservations() {
   const keyword = qs('#reservation-search').value.trim().toLowerCase();
   const menu = qs('#reservation-menu-filter').value;
-  const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName, item.menuName].some((value) => String(value || '').toLowerCase().includes(keyword)));
+  const filtered = reservations.filter((item) => (!menu || (item.items || []).some((orderItem) => orderItem.name === menu) || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName, orderText(item)].some((value) => String(value || '').toLowerCase().includes(keyword)));
   const visible = filtered.slice(0, 100);
   const scope = '전체 예약';
   qs('#reservation-result-count').textContent = filtered.length > 100 ? `${scope} · 총 ${filtered.length}건 중 최근 100건을 표시합니다.` : `${scope} · 총 ${filtered.length}건`;
   qs('#admin-reservations').innerHTML = visible.map((item) => `<article class="data-row reservation-record">
     <div><strong>${escapeHtml(item.reservationNo)}</strong><span>학번: ${escapeHtml(item.studentIdNormalized)}</span><span>이름: ${escapeHtml(item.studentName)}</span></div>
-    <div class="reservation-record__details"><span>주문 음식: ${escapeHtml(item.menuName || settings.serviceName || '')}</span><span>주문 가격: ${Number.isFinite(Number(item.menuPrice)) ? `${Number(item.menuPrice).toLocaleString('ko-KR')}원` : '가격 정보 없음'}</span><span>${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div>
+    <div class="reservation-record__details"><span>주문 음식: ${escapeHtml(orderText(item))}</span><span>주문 가격: ${Number.isFinite(Number(item.menuPrice)) ? `${Number(item.menuPrice).toLocaleString('ko-KR')}원` : '가격 정보 없음'}</span><span>${statusText(item.currentStatus)} · ${formatDateTime(item.createdAt)}</span></div>
   </article>`).join('') || '<div class="empty-state">검색 결과가 없습니다.</div>';
 }
 

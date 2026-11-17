@@ -9,7 +9,7 @@ const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const createReservation = httpsCallable(functions, 'createReservation');
 const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
 let settings = null;
-let selectedMenu = '';
+let selectedItems = new Map();
 let availableMenus = [];
 let currentStep = 1;
 
@@ -34,11 +34,39 @@ function showStep(step) {
 }
 
 function updateSummary() {
-  qs('#summary-menu').textContent = selectedMenu ? `${selectedMenu.name} · ${formatPrice(selectedMenu.price)}` : '메뉴를 선택해 주세요';
+  const items = orderItems();
+  const count = items.reduce((total, item) => total + item.quantity, 0);
+  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  qs('#summary-menu').textContent = items.length ? `${items.length}종류 · ${count}개 선택` : '메뉴를 선택해 주세요';
+  qs('#summary-items').innerHTML = items.map((item) => `<div class="kiosk-summary__item"><span>${escapeHtml(item.name)} <b>×${item.quantity}</b></span><span>${formatPrice(item.price * item.quantity)}</span><div class="kiosk-quantity"><button type="button" data-cart-minus="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.name)} 수량 줄이기">−</button><button type="button" data-cart-plus="${escapeHtml(item.id)}" aria-label="${escapeHtml(item.name)} 수량 늘리기">+</button></div></div>`).join('');
+  qs('#summary-count').textContent = `${count}개`;
+  qs('#summary-total').textContent = formatPrice(total);
   const studentId = qs('#reserve-student-id').value.trim();
   const studentName = qs('#reserve-student-name').value.trim();
   qs('#summary-student').textContent = studentId || studentName ? `${studentId} ${studentName}`.trim() : '학생 정보 입력 전';
-  qs('#menu-next').disabled = !selectedMenu || !settings?.acceptingNow;
+  qs('#menu-next').disabled = items.length === 0 || !settings?.acceptingNow;
+}
+
+function orderItems() {
+  return availableMenus
+    .filter((menu) => selectedItems.has(menu.id))
+    .map((menu) => ({ ...menu, quantity: selectedItems.get(menu.id) }));
+}
+
+function renderMenus() {
+  qs('#menu-options').innerHTML = availableMenus.map((menu, index) => {
+    const quantity = selectedItems.get(menu.id) || 0;
+    return `<button type="button" class="kiosk-menu ${quantity ? 'selected' : ''}" data-menu-id="${escapeHtml(menu.id)}" aria-pressed="${quantity > 0}"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">${escapeHtml(menu.emoji || '🍴')}</span><strong>${escapeHtml(menu.name)}</strong><span class="kiosk-menu__price">${formatPrice(menu.price)}</span><small>${escapeHtml(menu.description || '눌러서 담기')}</small><em class="kiosk-menu__quantity">${quantity ? `${quantity}개 선택` : '담기'}</em></span></button>`;
+  }).join('');
+}
+
+function changeQuantity(menuId, delta) {
+  const current = selectedItems.get(menuId) || 0;
+  const next = Math.max(0, Math.min(10, current + delta));
+  if (next === 0) selectedItems.delete(menuId);
+  else selectedItems.set(menuId, next);
+  renderMenus();
+  updateSummary();
 }
 
 async function initialize() {
@@ -49,7 +77,7 @@ async function initialize() {
     qs('#reserve-subtitle').textContent = `${settings.eventName || '복성고 학술문화제'} · ${settings.serviceName || '먹거리 부스'}`;
     const menus = availableMenuItems();
     availableMenus = menus;
-    qs('#menu-options').innerHTML = menus.map((menu, index) => `<button type="button" class="kiosk-menu" data-menu-index="${index}" aria-pressed="false"><span class="kiosk-menu__body"><b class="kiosk-menu__number">${String(index + 1).padStart(2, '0')}</b><span class="kiosk-menu__icon">${escapeHtml(menu.emoji || '🍴')}</span><strong>${escapeHtml(menu.name)}</strong><span class="kiosk-menu__price">${formatPrice(menu.price)}</span><small>${escapeHtml(menu.description || '선택하기')}</small></span></button>`).join('');
+    renderMenus();
     const notice = qs('#reserve-notice');
     notice.textContent = settings.notice || '';
     show(notice, Boolean(settings.notice));
@@ -63,20 +91,20 @@ async function initialize() {
 }
 
 qs('#menu-options').addEventListener('click', (event) => {
-  const button = event.target.closest('[data-menu-index]');
+  const button = event.target.closest('[data-menu-id]');
   if (!button) return;
+  changeQuantity(button.dataset.menuId, 1);
+});
 
-  selectedMenu = availableMenus[Number(button.dataset.menuIndex)] || null;
-  qs('#menu-options').querySelectorAll('.kiosk-menu').forEach((menuButton) => {
-    const isSelected = menuButton === button;
-    menuButton.classList.toggle('selected', isSelected);
-    menuButton.setAttribute('aria-pressed', String(isSelected));
-  });
-  updateSummary();
+qs('#summary-items').addEventListener('click', (event) => {
+  const minus = event.target.closest('[data-cart-minus]');
+  const plus = event.target.closest('[data-cart-plus]');
+  if (minus) changeQuantity(minus.dataset.cartMinus, -1);
+  if (plus) changeQuantity(plus.dataset.cartPlus, 1);
 });
 
 qs('#menu-next').addEventListener('click', () => {
-  if (!selectedMenu) { showToast('메뉴를 먼저 선택해 주세요.'); return; }
+  if (!orderItems().length) { showToast('메뉴를 먼저 선택해 주세요.'); return; }
   showStep(2);
   setTimeout(() => qs('#reserve-student-id').focus(), 250);
 });
@@ -86,7 +114,9 @@ qs('#info-next').addEventListener('click', () => {
   const studentId = qs('#reserve-student-id');
   const studentName = qs('#reserve-student-name');
   if (!studentId.reportValidity() || !studentName.reportValidity()) return;
-  qs('#confirm-menu').textContent = `${selectedMenu.name} · ${formatPrice(selectedMenu.price)}`;
+  const items = orderItems();
+  const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  qs('#confirm-menu').textContent = `${items.map((item) => `${item.name} ×${item.quantity}`).join(', ')} · ${formatPrice(total)}`;
   qs('#confirm-student').textContent = `${studentId.value.trim()} ${studentName.value.trim()}`;
   showStep(3);
 });
@@ -100,13 +130,14 @@ qs('#reserve-form').addEventListener('submit', async (event) => {
     return;
   }
   const button = qs('#reserve-submit');
-  const menuId = selectedMenu.id;
+  const items = orderItems().map((item) => ({ menuId: item.id, quantity: item.quantity }));
+  if (!items.length) { showToast('메뉴를 먼저 선택해 주세요.'); return; }
   const studentId = qs('#reserve-student-id').value.trim();
   const studentName = qs('#reserve-student-name').value.trim();
   const token = customerToken();
   setBusy(button, true);
   try {
-    const response = await createReservation({ menuId, studentId, studentName, customerToken: token, operationId: operationId() });
+    const response = await createReservation({ items, studentId, studentName, customerToken: token, operationId: operationId() });
     rememberReservation({ reservationId: response.data.reservation.id, token, reservationNo: response.data.reservation.reservationNo, menuName: response.data.reservation.menuName });
     const payment = await startReservationPayment({ reservationId: response.data.reservation.id, customerToken: token });
     location.assign(payment.data.paymentUrl);

@@ -28,7 +28,7 @@
       <form id="reserve-form" class="kiosk-layout" novalidate>
         <div class="kiosk-stage card">
           <section data-kiosk-step="1">
-            <div class="kiosk-title"><span class="kiosk-title__number">01</span><div><h2>어떤 메뉴를 예약할까요?</h2><p>메뉴 카드를 눌러 하나를 선택하세요.</p></div></div>
+            <div class="kiosk-title"><span class="kiosk-title__number">01</span><div><h2>어떤 메뉴를 예약할까요?</h2><p>메뉴 카드를 눌러 담고, 오른쪽 주문표에서 수량을 조절하세요.</p></div></div>
             <fieldset><legend class="visually-hidden">메뉴 선택</legend><div id="menu-options" class="kiosk-menu-grid"></div></fieldset>
             <div class="kiosk-actions kiosk-actions--end"><button id="menu-next" class="button button--primary kiosk-next" type="button" disabled>다음 · 학생 정보 입력</button></div>
           </section>
@@ -59,8 +59,10 @@
           <span class="eyebrow">MY ORDER</span><h2>선택 내역</h2>
           <div class="kiosk-summary__icon">🍽️</div>
           <strong id="summary-menu">메뉴를 선택해 주세요</strong>
+          <div id="summary-items" class="kiosk-summary__items" aria-live="polite"></div>
           <p id="summary-student">학생 정보 입력 전</p>
-          <div class="kiosk-summary__status"><span>예약 수량</span><b>1개</b></div>
+          <div class="kiosk-summary__status"><span>예약 수량</span><b id="summary-count">0개</b></div>
+          <div class="kiosk-summary__status"><span>결제 금액</span><b id="summary-total">0원</b></div>
         </aside>
       </form>
     </section>

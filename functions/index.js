@@ -156,6 +156,14 @@ function publicReservation(id, data) {
     studentName: data.studentName,
     menuName: data.menuName || null,
     menuPrice: Number(data.menuPrice || 0),
+    items: Array.isArray(data.items) ? data.items.map((item) => ({
+      menuId: item.menuId,
+      name: item.name,
+      price: Number(item.price || 0),
+      quantity: Number(item.quantity || 0),
+      subtotal: Number(item.subtotal || 0)
+    })) : [],
+    itemCount: Number(data.itemCount || 1),
     currentStatus: data.currentStatus,
     teamsAhead: data.teamsAhead ?? 0,
     holdCount: data.holdCount ?? 0,
@@ -167,6 +175,30 @@ function publicReservation(id, data) {
     cookingCompletedAt: data.cookingCompletedAt?.toDate?.().toISOString() || null,
     createdAt: data.createdAt?.toDate?.().toISOString() || null
   };
+}
+
+function normalizeOrderItems(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10) {
+    throw new HttpsError('invalid-argument', '메뉴는 1–10종류까지 선택할 수 있습니다.');
+  }
+  const seen = new Set();
+  const items = value.map((raw) => {
+    const menuId = String(raw?.menuId || '').trim();
+    const quantity = Number(raw?.quantity);
+    if (!menuId || !Number.isSafeInteger(quantity) || quantity < 1 || quantity > 10 || seen.has(menuId)) {
+      throw new HttpsError('invalid-argument', '메뉴와 수량을 다시 확인해 주세요.');
+    }
+    seen.add(menuId);
+    const menu = findMenu(menuId);
+    if (!menu || menu.available === false) throw new HttpsError('invalid-argument', '선택한 메뉴를 찾을 수 없습니다.');
+    return { menuId: menu.id, name: menu.name, price: Number(menu.price), quantity, subtotal: Number(menu.price) * quantity };
+  });
+  const itemCount = items.reduce((total, item) => total + item.quantity, 0);
+  const totalPrice = items.reduce((total, item) => total + item.subtotal, 0);
+  if (itemCount > 30 || !Number.isSafeInteger(totalPrice) || totalPrice <= 0 || totalPrice > 500000) {
+    throw new HttpsError('invalid-argument', '한 예약의 메뉴 수량 또는 결제 금액 한도를 넘었습니다.');
+  }
+  return { items, itemCount, totalPrice, menuName: items.map((item) => `${item.name} ×${item.quantity}`).join(', ') };
 }
 
 async function allocateNumber(counterName, prefix) {
@@ -279,9 +311,10 @@ export const createReservation = checkedCall(async (request) => {
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
   const token = String(request.data?.customerToken || '');
-  const menuId = String(request.data?.menuId || '').trim();
-  const menu = findMenu(menuId);
-  if (!menu || menu.available === false) throw new HttpsError('invalid-argument', '선택한 메뉴를 찾을 수 없습니다.');
+  let order;
+  // Accept the former single-menu payload during the static-site deployment window.
+  try { order = normalizeOrderItems(request.data?.items ?? [{ menuId: request.data?.menuId, quantity: 1 }]); }
+  catch (error) { throw error instanceof HttpsError ? error : new HttpsError('invalid-argument', '주문 메뉴를 확인해 주세요.'); }
   if (!/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '고객 token 형식이 올바르지 않습니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const reservationNo = await allocateNumber('reservation', 'R');
@@ -307,7 +340,10 @@ export const createReservation = checkedCall(async (request) => {
     if (recent) throw new HttpsError('resource-exhausted', '연속 예약은 15초 뒤에 다시 시도해 주세요.');
     const ref = db.collection('reservations').doc();
     const reservation = {
-      reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price,
+      reservationNo, studentIdNormalized: studentId, studentName,
+      // Keep the legacy fields for existing views/exports; menuPrice is now the order total.
+      menuId: order.items[0].menuId, menuName: order.menuName, menuPrice: order.totalPrice,
+      items: order.items, itemCount: order.itemCount,
       createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: null,
       estimatedWaitMinutes: null, test: false,
       currentStatus: 'payment_pending', queueOrder: null, teamsAhead: null,
@@ -323,7 +359,7 @@ export const createReservation = checkedCall(async (request) => {
     transaction.set(operationRef, { result: operationResult, createdAt: FieldValue.serverTimestamp() });
     return operationResult;
   });
-  await writeRtdbLog('reservations', { action: 'apply', reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price });
+  await writeRtdbLog('reservations', { action: 'apply', reservationNo, studentIdNormalized: studentId, studentName, items: order.items, itemCount: order.itemCount, menuName: order.menuName, menuPrice: order.totalPrice });
   return result;
 });
 
@@ -339,7 +375,7 @@ export const startReservationPayment = checkedCall({ secrets: [reservationPaymen
   if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 결제를 시작할 수 있습니다.');
   if (reservation.currentStatus !== 'payment_pending') throw new HttpsError('failed-precondition', '결제를 시작할 수 있는 예약 상태가 아닙니다.');
   if (paymentSession.exists && paymentSession.data().paymentUrl) return { paymentUrl: paymentSession.data().paymentUrl };
-  const payload = JSON.stringify({ reservationId, reservationNo: reservation.reservationNo, amount: Number(reservation.menuPrice), menuName: reservation.menuName });
+  const payload = JSON.stringify({ reservationId, reservationNo: reservation.reservationNo, amount: Number(reservation.menuPrice), menuName: String(reservation.menuName || '').slice(0, 80) });
   const timestamp = String(Date.now());
   let response;
   try {
