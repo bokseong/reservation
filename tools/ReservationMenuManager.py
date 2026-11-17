@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import queue
 import re
+import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -130,6 +131,17 @@ class MenuManager(tk.Tk):
             raise RuntimeError(f"명령이 실패했습니다: {' '.join(args)}")
         return "".join(output)
 
+    @staticmethod
+    def executable(name: str) -> str:
+        """Resolve Windows batch launchers such as npm.cmd before Popen runs."""
+        if os.name == "nt":
+            resolved = shutil.which(f"{name}.cmd") or shutil.which(name)
+        else:
+            resolved = shutil.which(name)
+        if not resolved:
+            raise RuntimeError(f"'{name}' 실행 파일을 찾을 수 없습니다. Node.js와 npm이 설치되어 있는지 확인하세요.")
+        return resolved
+
     def git_status(self, repo: Path) -> list[str]:
         output = self.command(repo, "git", "status", "--porcelain")
         lines = [line for line in output.splitlines() if line]
@@ -152,8 +164,9 @@ class MenuManager(tk.Tk):
             if ahead:
                 raise RuntimeError("이 컴퓨터에 아직 푸시되지 않은 커밋이 있습니다. Git 상태를 먼저 정리하세요.")
 
-            self.command(repo, "npm", "run", "sync:menu")
-            self.command(repo, "npm", "run", "check")
+            npm = self.executable("npm")
+            self.command(repo, npm, "run", "sync:menu")
+            self.command(repo, npm, "run", "check")
             if action == "check":
                 self.events.put(("done", "검사가 완료되었습니다. 배포는 수행하지 않았습니다."))
                 return
@@ -165,7 +178,8 @@ class MenuManager(tk.Tk):
             self.command(repo, "git", "add", "--", "public/js/menu.js", "functions/menu.js")
             self.command(repo, "git", "commit", "-m", "Update reservation menu")
             self.command(repo, "git", "push", "origin", "main")
-            self.command(repo, "npx.cmd", "firebase-tools", "deploy", "--only", "functions:reservation:createReservation,functions:reservation:getPublicSettings", "--project", "jw-astro09")
+            npx = self.executable("npx")
+            self.command(repo, npx, "firebase-tools", "deploy", "--only", "functions:reservation:createReservation,functions:reservation:getPublicSettings", "--project", "jw-astro09")
             self.events.put(("done", "완료: GitHub Pages와 Firebase 서버 메뉴를 함께 반영했습니다."))
         except Exception as error:
             self.events.put(("error", str(error)))
