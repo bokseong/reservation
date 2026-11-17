@@ -25,7 +25,17 @@ let unsubscribers = [];
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
+function setAdminAccess(authorized) {
+  const login = qs('#admin-login');
+  const view = qs('#admin-view');
+  login.hidden = authorized;
+  view.hidden = !authorized;
+  show(login, !authorized);
+  show(view, authorized);
+}
+
 async function loadAdmin() {
+  setAdminAccess(false);
   try {
     const response = await getStaffSession();
     profile = response.data.profile;
@@ -36,9 +46,12 @@ async function loadAdmin() {
     qsa('.admin-only-control').forEach((element) => show(element, isAdmin1));
     qsa('[data-admin-action]').forEach((button) => show(button, isAdmin1));
     ['#admin-history-button', '#admin-no-show-button', '#admin-sold-out-button'].forEach((selector) => show(qs(selector), isAdmin1));
-    show(qs('#admin-login'), false); show(qs('#admin-view'), true); subscribeData();
+    setAdminAccess(true); subscribeData();
   } catch (error) {
-    await signOut(auth); qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true);
+    unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = [];
+    profile = null; setAdminAccess(false);
+    qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true);
+    await signOut(auth);
   }
 }
 
@@ -151,7 +164,13 @@ function renderSettings() {
 function renderStaff() {
   qs('#staff-list').innerHTML = staff.map((item) => {
     const absolute = item.absoluteAdmin === true || String(item.email || '').toLowerCase() === 'github.jwastro09@gmail.com';
-    return `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 관리자'} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-staff-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></div>`;
+    const role = item.role === 'admin' ? '1급 관리자' : item.role === 'staff' ? '2급 관리자' : '일반 회원';
+    const roleButtons = item.role === 'member'
+      ? `<button data-staff-role="${item.id}" data-next-role="staff">2급으로</button><button data-staff-role="${item.id}" data-next-role="admin">1급으로</button>`
+      : item.role === 'staff'
+        ? `<button data-staff-role="${item.id}" data-next-role="member">일반으로</button><button data-staff-role="${item.id}" data-next-role="admin">1급으로</button>`
+        : `<button data-staff-role="${item.id}" data-next-role="member">일반으로</button><button data-staff-role="${item.id}" data-next-role="staff">2급으로</button>`;
+    return `<div class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${absolute ? '절대 관리자' : role} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `${roleButtons}<button data-staff-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></div>`;
   }).join('') || '<div class="empty-state">직원이 없습니다.</div>';
 }
 
@@ -298,6 +317,6 @@ qs('#admin-logout').addEventListener('click', () => signOut(auth));
 onAuthStateChanged(auth, async (user) => {
   unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = [];
   if (user && !user.isAnonymous) { try { await ensureAppCheck(); await loadAdmin(); } catch (error) { qs('#admin-login-error').textContent = friendlyError(error); show(qs('#admin-login-error'), true); } }
-  else { profile = null; show(qs('#admin-login'), true); show(qs('#admin-view'), false); }
+  else { profile = null; setAdminAccess(false); }
 });
 

@@ -78,7 +78,7 @@ async function ensureSettings() {
   return (await SETTINGS_REF.get()).data();
 }
 
-async function getProfile(request, role = 'staff') {
+async function ensureMemberProfile(request) {
   const user = requireAuth(request);
   const ref = db.doc(`staffProfiles/${user.uid}`);
   let snapshot = await ref.get();
@@ -88,6 +88,24 @@ async function getProfile(request, role = 'staff') {
     await ref.set({ name: user.token.name || snapshot.data()?.name || '총괄 관리자', email, role: 'admin', active: true, createdAt: snapshot.data()?.createdAt || FieldValue.serverTimestamp(), bootstrap: true, absoluteAdmin: true }, { merge: true });
     snapshot = await ref.get();
   }
+  if (!snapshot.exists) {
+    // Any newly authenticated person starts as a regular member.  Privileges
+    // can only be granted later by an existing first-grade administrator.
+    await ref.set({
+      name: String(user.token.name || '').trim().slice(0, 30) || '일반 회원',
+      email: email || null,
+      role: 'member',
+      active: true,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    snapshot = await ref.get();
+  }
+  return { user, snapshot, email, absoluteAdmin };
+}
+
+async function getProfile(request, role = 'staff') {
+  const { user, snapshot, email, absoluteAdmin } = await ensureMemberProfile(request);
   if (!snapshot.exists || snapshot.data().active !== true) throw new HttpsError('permission-denied', '활성화된 직원 계정이 아닙니다.');
   const profile = snapshot.data();
   if (!['staff', 'admin'].includes(profile.role)) throw new HttpsError('permission-denied', '직원 권한이 없습니다.');
@@ -442,6 +460,16 @@ export const getStaffSession = checkedCall(async (request) => {
   return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true } };
 });
 
+// Used by future customer login screens as well as allowing a newly logged-in
+// person to be recorded before any privilege check.  This intentionally never
+// returns other members' data or grants staff access.
+export const getMemberSession = checkedCall(async (request) => {
+  const { snapshot, email, absoluteAdmin, user } = await ensureMemberProfile(request);
+  const profile = snapshot.data();
+  if (profile.active !== true) throw new HttpsError('permission-denied', '비활성화된 계정입니다.');
+  return { profile: { uid: user.uid, name: profile.name, email, role: profile.role, active: true, absoluteAdmin } };
+});
+
 export const staffAction = checkedCall(async (request) => {
   const profile = await getProfile(request);
   const reservationId = String(request.data?.reservationId || '');
@@ -631,7 +659,8 @@ export const updateStaffProfile = checkedCall(async (request) => {
   if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role != null || request.data.active != null)) throw new HttpsError('failed-precondition', '절대 관리자 계정은 변경할 수 없습니다.');
   const updates = { updatedAt: FieldValue.serverTimestamp() };
   if (request.data.role != null) {
-    if (!['admin', 'staff'].includes(request.data.role)) throw new HttpsError('invalid-argument', '관리자 등급이 올바르지 않습니다.');
+    if (!['member', 'admin', 'staff'].includes(request.data.role)) throw new HttpsError('invalid-argument', '권한 등급이 올바르지 않습니다.');
+    if (uid === profile.uid && request.data.role !== 'admin') throw new HttpsError('failed-precondition', '자기 계정의 1급 관리자 권한은 해제할 수 없습니다.');
     updates.role = request.data.role;
   }
   if (request.data.active != null) {

@@ -61,8 +61,13 @@ function renderSettings() {
 function renderStaff() {
   qs('#settings-staff-list').innerHTML = staff.map((item) => {
     const absolute = item.absoluteAdmin === true || String(item.email || '').toLowerCase() === 'github.jwastro09@gmail.com';
-    const role = absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 관리자';
-    return `<article class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${role} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-settings-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-settings-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></article>`;
+    const role = absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : item.role === 'staff' ? '2급 관리자' : '일반 회원';
+    const roleButtons = item.role === 'member'
+      ? `<button data-settings-role="${item.id}" data-next-role="staff">2급으로</button><button data-settings-role="${item.id}" data-next-role="admin">1급으로</button>`
+      : item.role === 'staff'
+        ? `<button data-settings-role="${item.id}" data-next-role="member">일반으로</button><button data-settings-role="${item.id}" data-next-role="admin">1급으로</button>`
+        : `<button data-settings-role="${item.id}" data-next-role="member">일반으로</button><button data-settings-role="${item.id}" data-next-role="staff">2급으로</button>`;
+    return `<article class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${role} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `${roleButtons}<button data-settings-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></article>`;
   }).join('') || '<div class="empty-state">관리자 계정이 없습니다.</div>';
 }
 
