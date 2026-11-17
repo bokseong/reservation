@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { getDatabase } from 'firebase-admin/database';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2/options';
 import { normalizeStudentId, normalizeName, csvRows, koreaDate } from './lib.js';
 import { availableMenuItems, findMenu } from './menu.js';
@@ -24,6 +25,8 @@ const ACTIVE = [...QUEUED, 'preparing', 'ready'];
 const BOOTSTRAP_ADMINS = new Set(['github.jwastro09@gmail.com']);
 const SETTINGS_REF = db.doc('settings/event');
 const CUSTOMER_PAGE_URL = 'https://bokseong.github.io/reservation/';
+const BANK_CHECKOUT_URL = 'https://asia-northeast3-hs-bokseong.cloudfunctions.net/createReservationCheckout';
+const reservationPaymentSecret = defineSecret('RESERVATION_PAYMENT_SHARED_SECRET');
 const rtdb = getDatabase(undefined, 'https://jw-astro09-default-rtdb.asia-southeast1.firebasedatabase.app');
 
 const DEFAULT_SETTINGS = {
@@ -43,6 +46,25 @@ const DEFAULT_SETTINGS = {
   maxHoldCount: 2,
   updatedAt: FieldValue.serverTimestamp()
 };
+
+function signPaymentPayload(timestamp, body) {
+  return createHmac('sha256', reservationPaymentSecret.value()).update(`${timestamp}.${body}`).digest('hex');
+}
+
+function safeSignatureEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8'), b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function verifyBankCallback(request) {
+  if (request.method !== 'POST') throw new HttpsError('invalid-argument', 'POST 요청만 허용됩니다.');
+  const timestamp = String(request.get('x-reservation-timestamp') || '');
+  const timestampNumber = Number(timestamp);
+  if (!Number.isSafeInteger(timestampNumber) || Math.abs(Date.now() - timestampNumber) > 5 * 60 * 1000) throw new HttpsError('permission-denied', '만료된 결제 확인 요청입니다.');
+  const rawBody = Buffer.isBuffer(request.rawBody) ? request.rawBody.toString('utf8') : JSON.stringify(request.body || {});
+  if (!safeSignatureEqual(request.get('x-reservation-signature'), signPaymentPayload(timestamp, rawBody))) throw new HttpsError('permission-denied', '결제 확인 서명을 검증하지 못했습니다.');
+  return request.body || {};
+}
 
 function requireAuth(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', '로그인이 필요합니다.');
@@ -257,7 +279,6 @@ export const createReservation = checkedCall(async (request) => {
   const operationId = parseOperationId(request.data?.operationId);
   const reservationNo = await allocateNumber('reservation', 'R');
   const eventNo = await allocateNumber('reservationEvent', 'H');
-  const queueNo = await allocateNumber('queue', 'Q');
   const result = await db.runTransaction(async (transaction) => {
     const operationRef = db.doc(`operations/${operationId}`);
     const operationSnapshot = await transaction.get(operationRef);
@@ -275,17 +296,15 @@ export const createReservation = checkedCall(async (request) => {
       if (existing.data().studentName !== studentName) throw new HttpsError('already-exists', '이 학번으로 이미 다른 이름의 예약이 있습니다.');
       throw new HttpsError('already-exists', '이미 예약되어 있습니다.', { canLookup: true });
     }
-    const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE).orderBy('queueOrder'));
-    const queueOrderNumber = Number(queueNo.split('-')[1]);
     const ref = db.collection('reservations').doc();
     const reservation = {
       reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price,
-      createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: active.size,
+      createdAt: FieldValue.serverTimestamp(), queueIndexAtCreation: null,
       estimatedWaitMinutes: null, test: false,
-      currentStatus: active.empty ? 'called' : 'waiting', queueOrder: queueOrderNumber, teamsAhead: active.size,
+      currentStatus: 'payment_pending', queueOrder: null, teamsAhead: null,
       holdCount: 0, customerUid: null, customerTokenHash: hashToken(token),
       pickupAt: null, missedAt: null, cancelMemo: null, lastEventId: null,
-      requiredCookUids: [], completedCookUids: []
+      requiredCookUids: [], completedCookUids: [], paymentStatus: 'pending', paymentCheckoutId: null, paymentTransactionId: null
     };
     const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'apply', actorType: 'customer', actorUid: null, actorName: '본인', operationId, undoable: false });
     reservation.lastEventId = added.eventRef.id;
@@ -297,6 +316,57 @@ export const createReservation = checkedCall(async (request) => {
   });
   await writeRtdbLog('reservations', { action: 'apply', reservationNo, studentIdNormalized: studentId, studentName, menuId: menu.id, menuName: menu.name, menuPrice: menu.price });
   return result;
+});
+
+export const startReservationPayment = checkedCall({ secrets: [reservationPaymentSecret] }, async (request) => {
+  const reservationId = String(request.data?.reservationId || '').trim();
+  const token = String(request.data?.customerToken || '');
+  if (!reservationId || !/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '예약 결제 정보가 올바르지 않습니다.');
+  const reservationRef = db.doc(`reservations/${reservationId}`);
+  const snapshot = await reservationRef.get();
+  if (!snapshot.exists) throw new HttpsError('not-found', '예약을 찾을 수 없습니다.');
+  const reservation = snapshot.data();
+  if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 결제를 시작할 수 있습니다.');
+  if (reservation.currentStatus !== 'payment_pending') throw new HttpsError('failed-precondition', '결제를 시작할 수 있는 예약 상태가 아닙니다.');
+  const payload = JSON.stringify({ reservationId, reservationNo: reservation.reservationNo, amount: Number(reservation.menuPrice), menuName: reservation.menuName });
+  const timestamp = String(Date.now());
+  let response;
+  try {
+    response = await fetch(BANK_CHECKOUT_URL, { method: 'POST', headers: { 'content-type': 'application/json', 'x-reservation-timestamp': timestamp, 'x-reservation-signature': signPaymentPayload(timestamp, payload) }, body: payload });
+  } catch { throw new HttpsError('unavailable', '결제 서비스를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.checkoutId || !data.paymentUrl) throw new HttpsError('failed-precondition', data.error || '결제 요청을 준비하지 못했습니다.');
+  await reservationRef.set({ paymentStatus: 'checkout_created', paymentCheckoutId: data.checkoutId, paymentStartedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return { paymentUrl: data.paymentUrl };
+});
+
+export const confirmBankPayment = onRequest({ region: 'asia-northeast3', secrets: [reservationPaymentSecret], cors: false }, async (request, response) => {
+  try {
+    const input = verifyBankCallback(request);
+    const reservationId = String(input.reservationId || '').trim(), checkoutId = String(input.checkoutId || '').trim(), transactionId = String(input.bankTransactionId || '').trim();
+    const amount = Number(input.amount);
+    if (!/^[A-Za-z0-9_-]{8,160}$/.test(reservationId) || !/^[A-Za-z0-9_-]{8,160}$/.test(checkoutId) || !/^[A-Za-z0-9_-]{8,160}$/.test(transactionId) || !Number.isSafeInteger(amount) || amount <= 0) throw new HttpsError('invalid-argument', '결제 확인 정보가 올바르지 않습니다.');
+    const queueNo = await allocateNumber('queue', 'Q');
+    const eventNo = await allocateNumber('reservationEvent', 'H');
+    let completed = false;
+    await db.runTransaction(async (transaction) => {
+      const ref = db.doc(`reservations/${reservationId}`), snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw new HttpsError('not-found', '예약을 찾을 수 없습니다.');
+      const reservation = snapshot.data();
+      if (reservation.paymentTransactionId === transactionId) return;
+      if (reservation.currentStatus !== 'payment_pending' || reservation.paymentCheckoutId !== checkoutId || Number(reservation.menuPrice) !== amount) throw new HttpsError('failed-precondition', '예약 결제 상태가 일치하지 않습니다.');
+      const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE).orderBy('queueOrder'));
+      const queueOrder = Number(queueNo.split('-')[1]);
+      const currentStatus = active.empty ? 'called' : 'waiting';
+      const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'payment_confirmed', actorType: 'system', actorUid: null, actorName: '축제은행', operationId: `bank-${transactionId}`, undoable: false });
+      transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
+      completed = true;
+    });
+    if (completed) await writeRtdbLog('reservations', { action: 'payment_confirmed', reservationId, checkoutId, transactionId, amount });
+    response.status(200).json({ ok: true });
+  } catch (error) {
+    response.status(error instanceof HttpsError && error.code === 'permission-denied' ? 403 : 400).json({ error: error.message || '결제 확인을 처리하지 못했습니다.' });
+  }
 });
 
 export const lookupReservation = checkedCall(async (request) => {

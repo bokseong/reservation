@@ -6,6 +6,7 @@ import { availableMenuItems, formatPrice } from './menu.js';
 const STORAGE_KEY = 'bokseong-reservation-session-v1';
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const createReservation = httpsCallable(functions, 'createReservation');
+const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
 const lookupReservation = httpsCallable(functions, 'lookupReservation');
 let settings = null;
 let selectedMenu = '';
@@ -98,7 +99,8 @@ qs('#reserve-form').addEventListener('submit', async (event) => {
   try {
     const response = await createReservation({ menuId, studentId, studentName, customerToken: token, operationId: operationId() });
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ reservationId: response.data.reservation.id, token }));
-    location.href = './index.html';
+    const payment = await startReservationPayment({ reservationId: response.data.reservation.id, customerToken: token });
+    location.assign(payment.data.paymentUrl);
   } catch (error) {
     if (error?.details?.canLookup) {
       try {

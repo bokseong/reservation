@@ -8,6 +8,7 @@ const getCustomerReservation = httpsCallable(functions, 'getCustomerReservation'
 const cancelReservation = httpsCallable(functions, 'cancelOwnReservation');
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const registerNotificationDevice = httpsCallable(functions, 'registerNotificationDevice');
+const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
 
 let session = readSession();
 let settings = null;
@@ -144,7 +145,9 @@ function renderReservation(reservation, recovered) {
   label.textContent = '예약 상태';
   help.textContent = '';
 
-  if (status === 'called') {
+  if (status === 'payment_pending') {
+    label.textContent = '결제 확인 중'; value.textContent = '대기열 등록 전'; help.textContent = '축제은행 결제 확인 후 자동으로 예약 대기열에 등록됩니다.';
+  } else if (status === 'called') {
     label.textContent = '호출됨'; value.textContent = '지금 내 차례'; help.textContent = '부스로 와서 음식을 받아 주세요.'; panel.dataset.tone = 'success';
   } else if (status === 'preparing') {
     label.textContent = '조리 중'; value.textContent = '음식을 만들고 있어요'; help.textContent = '조리가 끝나면 이 화면에서 바로 알려드려요.';
@@ -166,6 +169,8 @@ function renderReservation(reservation, recovered) {
   }
 
   const canCancel = !recovered && ['waiting', 'called', 'held'].includes(status) && Boolean(session?.token);
+  const canPay = !recovered && status === 'payment_pending' && Boolean(session?.token);
+  show(qs('#pay-button'), canPay);
   show(qs('#cancel-button'), canCancel);
   const canNotify = Boolean(session?.token) && 'Notification' in window && ['waiting', 'called', 'held', 'preparing', 'ready'].includes(status);
   show(qs('#notify-button'), canNotify);
@@ -194,6 +199,14 @@ qs('#reservation-form').addEventListener('submit', async (event) => {
 });
 
 qs('#cancel-button').addEventListener('click', () => qs('#cancel-dialog').showModal());
+qs('#pay-button').addEventListener('click', async () => {
+  try {
+    setBusy(qs('#pay-button'), true, '결제 페이지 준비 중…');
+    const result = await startReservationPayment({ reservationId: session.reservationId, customerToken: session.token });
+    location.assign(result.data.paymentUrl);
+  } catch (error) { showToast(friendlyError(error), 5000); }
+  finally { setBusy(qs('#pay-button'), false); }
+});
 qs('#notify-button').addEventListener('click', async () => {
   try {
     setBusy(qs('#notify-button'), true, '알림 연결 중…');
