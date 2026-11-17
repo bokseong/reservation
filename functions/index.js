@@ -334,12 +334,13 @@ export const startReservationPayment = checkedCall({ secrets: [reservationPaymen
   const token = String(request.data?.customerToken || '');
   if (!reservationId || !/^[0-9a-f]{64}$/i.test(token)) throw new HttpsError('invalid-argument', '예약 결제 정보가 올바르지 않습니다.');
   const reservationRef = db.doc(`reservations/${reservationId}`);
-  const snapshot = await reservationRef.get();
+  const paymentSessionRef = db.doc(`paymentSessions/${reservationId}`);
+  const [snapshot, paymentSession] = await Promise.all([reservationRef.get(), paymentSessionRef.get()]);
   if (!snapshot.exists) throw new HttpsError('not-found', '예약을 찾을 수 없습니다.');
   const reservation = snapshot.data();
   if (reservation.customerTokenHash !== hashToken(token)) throw new HttpsError('permission-denied', '최초 예약 기기에서만 결제를 시작할 수 있습니다.');
   if (reservation.currentStatus !== 'payment_pending') throw new HttpsError('failed-precondition', '결제를 시작할 수 있는 예약 상태가 아닙니다.');
-  if (reservation.paymentCheckoutId && reservation.paymentUrl) return { paymentUrl: reservation.paymentUrl };
+  if (paymentSession.exists && paymentSession.data().paymentUrl) return { paymentUrl: paymentSession.data().paymentUrl };
   const payload = JSON.stringify({ reservationId, reservationNo: reservation.reservationNo, amount: Number(reservation.menuPrice), menuName: reservation.menuName });
   const timestamp = String(Date.now());
   let response;
@@ -348,8 +349,14 @@ export const startReservationPayment = checkedCall({ secrets: [reservationPaymen
   } catch { throw new HttpsError('unavailable', '결제 서비스를 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.checkoutId || !data.paymentUrl) throw new HttpsError('failed-precondition', data.error || '결제 요청을 준비하지 못했습니다.');
-  await reservationRef.set({ paymentStatus: 'checkout_created', paymentCheckoutId: data.checkoutId, paymentUrl: data.paymentUrl, paymentStartedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  return { paymentUrl: data.paymentUrl };
+  return db.runTransaction(async (transaction) => {
+    const [currentReservation, currentSession] = await Promise.all([transaction.get(reservationRef), transaction.get(paymentSessionRef)]);
+    if (!currentReservation.exists || currentReservation.data().customerTokenHash !== hashToken(token) || currentReservation.data().currentStatus !== 'payment_pending') throw new HttpsError('failed-precondition', '결제를 시작할 수 있는 예약 상태가 아닙니다.');
+    if (currentSession.exists && currentSession.data().paymentUrl) return { paymentUrl: currentSession.data().paymentUrl };
+    transaction.set(reservationRef, { paymentStatus: 'checkout_created', paymentCheckoutId: data.checkoutId, paymentStartedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.set(paymentSessionRef, { paymentUrl: data.paymentUrl, checkoutId: data.checkoutId, createdAt: FieldValue.serverTimestamp() });
+    return { paymentUrl: data.paymentUrl };
+  });
 });
 
 export const confirmBankPayment = onRequest({ region: 'asia-northeast3', secrets: [reservationPaymentSecret], cors: false }, async (request, response) => {
