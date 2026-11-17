@@ -7,7 +7,6 @@ const STORAGE_KEY = 'bokseong-reservation-session-v1';
 const getPublicSettings = httpsCallable(functions, 'getPublicSettings');
 const createReservation = httpsCallable(functions, 'createReservation');
 const startReservationPayment = httpsCallable(functions, 'startReservationPayment');
-const lookupReservation = httpsCallable(functions, 'lookupReservation');
 let settings = null;
 let selectedMenu = '';
 let availableMenus = [];
@@ -101,15 +100,8 @@ qs('#reserve-form').addEventListener('submit', async (event) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ reservationId: response.data.reservation.id, token }));
     const payment = await startReservationPayment({ reservationId: response.data.reservation.id, customerToken: token });
     location.assign(payment.data.paymentUrl);
-  } catch (error) {
-    if (error?.details?.canLookup) {
-      try {
-        const response = await lookupReservation({ studentId, studentName, operationId: operationId(), recordLookup: true });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ reservationId: response.data.reservation.id, studentId, studentName, recovered: true }));
-        location.href = './index.html';
-      } catch (lookupError) { showToast(friendlyError(lookupError), 5000); }
-    } else showToast(friendlyError(error), 5000);
-  } finally { setBusy(button, false); }
+  } catch (error) { showToast(friendlyError(error), 5000); }
+  finally { setBusy(button, false); }
 });
 
 initialize();

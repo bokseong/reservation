@@ -289,13 +289,7 @@ export const createReservation = checkedCall(async (request) => {
     const settings = settingsSnapshot.data();
     const now = Date.now();
     if (settings.acceptingReservations !== true || now > settings.reservationEndAt.toMillis()) {
-      throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.', { canLookup: true });
-    }
-    const duplicate = await transaction.get(db.collection('reservations').where('studentIdNormalized', '==', studentId).limit(1));
-    if (!duplicate.empty) {
-      const existing = duplicate.docs[0];
-      if (existing.data().studentName !== studentName) throw new HttpsError('already-exists', '이 학번으로 이미 다른 이름의 예약이 있습니다.');
-      throw new HttpsError('already-exists', '이미 예약되어 있습니다.', { canLookup: true });
+      throw new HttpsError('failed-precondition', '현재는 새 예약을 받고 있지 않습니다.');
     }
     const ref = db.collection('reservations').doc();
     const reservation = {
@@ -375,9 +369,12 @@ export const lookupReservation = checkedCall(async (request) => {
   let studentName;
   try { studentId = normalizeStudentId(request.data?.studentId); studentName = normalizeName(request.data?.studentName); }
   catch (error) { throw new HttpsError('invalid-argument', error.message); }
-  const snapshot = await db.collection('reservations').where('studentIdNormalized', '==', studentId).limit(1).get();
-  if (snapshot.empty || snapshot.docs[0].data().studentName !== studentName) throw new HttpsError('not-found', '학번과 이름이 일치하는 예약이 없습니다.');
-  const document = snapshot.docs[0];
+  const snapshot = await db.collection('reservations').where('studentIdNormalized', '==', studentId).get();
+  const documents = snapshot.docs
+    .filter((item) => item.data().studentName === studentName)
+    .sort((left, right) => (right.data().createdAt?.toMillis?.() || 0) - (left.data().createdAt?.toMillis?.() || 0));
+  if (!documents.length) throw new HttpsError('not-found', '학번과 이름이 일치하는 예약이 없습니다.');
+  const document = documents[0];
   if (request.data?.recordLookup !== false) {
     const operationId = parseOperationId(request.data?.operationId);
     const eventNo = await allocateNumber('reservationEvent', 'H');
