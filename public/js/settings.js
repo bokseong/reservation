@@ -19,19 +19,30 @@ let settings = {};
 let staff = [];
 let unsubscribers = [];
 
+function setSettingsAccess(authorized) {
+  const login = qs('#settings-login');
+  const view = qs('#settings-view');
+  login.hidden = authorized;
+  view.hidden = !authorized;
+  show(login, !authorized);
+  show(view, authorized);
+}
+
 async function loadSettingsPage() {
+  setSettingsAccess(false);
   try {
     const response = await getStaffSession();
     const profile = response.data.profile;
     if (profile.role !== 'admin') throw new Error('1급 관리자만 설정 페이지에 접근할 수 있습니다.');
     qs('#settings-role-label').textContent = profile.absoluteAdmin ? '절대 관리자 · 1급' : '1급 관리자';
-    show(qs('#settings-login'), false); show(qs('#settings-view'), true);
+    setSettingsAccess(true);
     unsubscribers.forEach((unsubscribe) => unsubscribe());
     unsubscribers = [
       onSnapshot(doc(db, 'settings', 'event'), (snapshot) => { settings = snapshot.data() || {}; renderSettings(); }),
       onSnapshot(query(collection(db, 'staffProfiles'), orderBy('name')), (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderStaff(); })
     ];
   } catch (error) {
+    setSettingsAccess(false);
     qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true);
     await signOut(auth);
   }
@@ -108,4 +119,12 @@ qsa('[data-settings-export]').forEach((button) => button.addEventListener('click
 qs('#settings-login-form').addEventListener('submit', async (event) => { event.preventDefault(); show(qs('#settings-login-error'), false); try { await ensureAppCheck(true); await signInWithEmailAndPassword(auth, qs('#settings-email').value.trim(), qs('#settings-password').value); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } });
 qs('#settings-google-login').addEventListener('click', async () => { show(qs('#settings-login-error'), false); setBusy(qs('#settings-google-login'), true, 'Google 로그인 중…'); try { await ensureAppCheck(true); await signInWithPopup(auth, googleProvider); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } finally { setBusy(qs('#settings-google-login'), false); } });
 qs('#settings-logout').addEventListener('click', () => signOut(auth));
-onAuthStateChanged(auth, async (user) => { unsubscribers.forEach((unsubscribe) => unsubscribe()); unsubscribers = []; if (user && !user.isAnonymous) { try { await ensureAppCheck(); await loadSettingsPage(); } catch (error) { qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); } } else { show(qs('#settings-login'), true); show(qs('#settings-view'), false); } });
+onAuthStateChanged(auth, async (user) => {
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  unsubscribers = [];
+  setSettingsAccess(false);
+  if (user && !user.isAnonymous) {
+    try { await ensureAppCheck(); await loadSettingsPage(); }
+    catch (error) { setSettingsAccess(false); qs('#settings-login-error').textContent = friendlyError(error); show(qs('#settings-login-error'), true); }
+  }
+});
