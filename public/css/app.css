@@ -125,7 +125,8 @@ small { color: var(--muted); font-weight: 500; }
 .kiosk-actions { display: grid; grid-template-columns: minmax(110px, .35fr) 1fr; gap: 10px; margin-top: 28px; }
 .kiosk-actions--end { grid-template-columns: minmax(220px, 430px); justify-content: end; }
 .kiosk-next, .kiosk-back { min-height: 62px; font-size: 17px; }
-.kiosk-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.kiosk-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.kiosk-inputs > label { align-content: start; }
 .kiosk-inputs input { min-height: 62px; font-size: 18px; }
 .kiosk-confirm { display: grid; gap: 12px; }
 .kiosk-confirm > div { display: flex; justify-content: space-between; gap: 20px; align-items: center; min-height: 82px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 15px; background: #ffffff; }
