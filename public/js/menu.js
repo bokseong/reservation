@@ -8,6 +8,42 @@ export const MENU_ITEMS = Object.freeze([
     description: '매콤달콤한 떡볶이',
     emoji: '🍴',
     available: true
+  }),
+
+  Object.freeze({
+    id: '메뉴 이름(en)',
+    name: '메뉴이름(kor)',
+    price: 1000,
+    description: '메뉴 설명',
+    emoji: '이모지',
+    available: true
+  }),
+
+  Object.freeze({
+    id: '메뉴 이름(en)',
+    name: '메뉴이름(kor)',
+    price: 1000,
+    description: '메뉴 설명',
+    emoji: '이모지',
+    available: true
+  }),
+
+  Object.freeze({
+    id: '메뉴 이름(en)',
+    name: '메뉴이름(kor)',
+    price: 1000,
+    description: '메뉴 설명',
+    emoji: '이모지',
+    available: true
+  }),
+
+  Object.freeze({
+    id: '메뉴 이름(en)',
+    name: '메뉴이름(kor)',
+    price: 1000,
+    description: '메뉴 설명',
+    emoji: '이모지',
+    available: true
   })
 ]);
 
