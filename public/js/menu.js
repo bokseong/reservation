@@ -8,7 +8,8 @@ const menu = (id, name, price, description = '', emoji = '🍴', available = tru
 
 export const MENU_ITEMS = Object.freeze([
   //menu('영문-id', '표시 이름', 가격, '설명', '이모지', 판매여부)
-  menu('tteokbokki', '떡볶이', 3000, '매콤달콤한 떡볶이', '🍴')
+  menu('tteokbokki', '떡볶이', 3000, '매콤달콤한 떡볶이', '🍴'),
+  menu('01', 'test', 1500, 'testversionmenu', '🍴')
 ]);
 
 export function availableMenuItems() {
