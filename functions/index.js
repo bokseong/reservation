@@ -105,28 +105,8 @@ function hashToken(token) {
   return createHash('sha256').update(String(token)).digest('hex');
 }
 
-function normalizeAssignedMenuIds(value) {
-  if (!Array.isArray(value)) throw new HttpsError('invalid-argument', '전담 메뉴 목록 형식이 올바르지 않습니다.');
-  const availableIds = new Set(availableMenuItems().map((menu) => menu.id));
-  const ids = [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
-  if (ids.length > availableIds.size || ids.some((id) => !availableIds.has(id))) throw new HttpsError('invalid-argument', '존재하지 않거나 판매 중지된 메뉴가 포함되어 있습니다.');
-  return ids;
-}
-
-function ensureAssignedMenu(profile, reservation) {
-  if (profile.role === 'admin') return;
-  const assignedMenuIds = Array.isArray(profile.assignedMenuIds) ? profile.assignedMenuIds : [];
-  if (!assignedMenuIds.includes(reservation.menuId)) throw new HttpsError('permission-denied', '배정된 전담 메뉴의 예약만 처리할 수 있습니다.');
-}
-
 async function writeRtdbLog(category, data) {
   await rtdb.ref(`logs/${category}`).push({ ...data, occurredAt: Date.now() });
-}
-
-async function requiredCookUids(transaction, menuId) {
-  const snapshot = await transaction.get(db.collection('staffProfiles').where('assignedMenuIds', 'array-contains', menuId));
-  const uids = snapshot.docs.filter((item) => item.data().active === true && ['staff', 'admin'].includes(item.data().role)).map((item) => item.id);
-  return [...new Set(uids)];
 }
 
 async function sendReadyNotification(reservationId, reservation) {
@@ -241,7 +221,7 @@ async function normalizeQueue(transaction, mutation = null) {
     const currentStatus = promoteToPreparing ? 'preparing' : index === 0 ? item.currentStatus : 'waiting';
     const updates = { currentStatus, teamsAhead: index, queueOrder: item.queueOrder };
     if (promoteToPreparing) {
-      updates.requiredCookUids = await requiredCookUids(transaction, item.menuId);
+      updates.requiredCookUids = [];
       updates.completedCookUids = [];
       updates.cookingStartedAt = FieldValue.serverTimestamp();
     }
@@ -377,9 +357,8 @@ export const confirmBankPayment = onRequest({ region: 'asia-northeast3', secrets
       const active = await transaction.get(db.collection('reservations').where('currentStatus', 'in', ACTIVE).orderBy('queueOrder'));
       const queueOrder = Number(queueNo.split('-')[1]);
       const currentStatus = active.empty ? 'preparing' : 'waiting';
-      const requiredCookUids = active.empty ? await requiredCookUids(transaction, reservation.menuId) : [];
       const added = await addReservationEvent(transaction, ref, reservation, { eventNo, type: 'payment_confirmed', actorType: 'system', actorUid: null, actorName: '축제은행', operationId: `bank-${transactionId}`, undoable: false });
-      transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, requiredCookUids, completedCookUids: [], cookingStartedAt: active.empty ? FieldValue.serverTimestamp() : null, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(ref, { currentStatus, queueOrder, teamsAhead: active.size, queueIndexAtCreation: active.size, requiredCookUids: [], completedCookUids: [], cookingStartedAt: active.empty ? FieldValue.serverTimestamp() : null, paymentStatus: 'paid', paymentTransactionId: transactionId, paidAt: FieldValue.serverTimestamp(), lastEventId: added.eventRef.id, updatedAt: FieldValue.serverTimestamp() });
       completed = true;
     });
     if (completed) await writeRtdbLog('reservations', { action: 'payment_confirmed', reservationId, checkoutId, transactionId, amount });
@@ -460,7 +439,7 @@ export const cancelOwnReservation = checkedCall(async (request) => {
 export const getStaffSession = checkedCall(async (request) => {
   const profile = await getProfile(request);
   await ensureSettings();
-  return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true, assignedMenuIds: Array.isArray(profile.assignedMenuIds) ? profile.assignedMenuIds : [] } };
+  return { profile: { uid: profile.uid, name: profile.name, email: profile.email, role: profile.role, active: profile.active, absoluteAdmin: profile.absoluteAdmin === true } };
 });
 
 export const staffAction = checkedCall(async (request) => {
@@ -468,7 +447,7 @@ export const staffAction = checkedCall(async (request) => {
   const reservationId = String(request.data?.reservationId || '');
   const action = String(request.data?.action || '');
   if (!['cooking_start', 'cooking_complete', 'pickup', 'no_show', 'hold', 'cancel'].includes(action)) throw new HttpsError('invalid-argument', '지원하지 않는 처리입니다.');
-  if (profile.role !== 'admin' && !['cooking_start', 'cooking_complete'].includes(action)) throw new HttpsError('permission-denied', '2급 관리자는 조리 상태만 변경할 수 있습니다.');
+  if (profile.role !== 'admin') throw new HttpsError('permission-denied', '2급 관리자는 예약 조회만 할 수 있습니다.');
   const operationId = parseOperationId(request.data?.operationId);
   const eventNo = await allocateNumber('reservationEvent', 'H');
   const queueNo = action === 'hold' ? await allocateNumber('queue', 'Q') : null;
@@ -481,12 +460,11 @@ export const staffAction = checkedCall(async (request) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists) throw new HttpsError('not-found', '예약이 없습니다.');
     const reservation = snapshot.data();
-    ensureAssignedMenu(profile, reservation);
     const settings = (await transaction.get(SETTINGS_REF)).data();
     const previousSnapshot = snapshotState(reservation);
     let nextStatus = action === 'cooking_start' ? 'preparing' : action === 'cooking_complete' ? 'preparing' : action === 'pickup' ? 'picked_up' : action === 'no_show' ? 'no_show' : action === 'cancel' ? 'cancelled' : 'waiting';
     let lateSeconds = null;
-    if (action === 'cooking_start' && !(reservation.currentStatus === 'called' || (reservation.currentStatus === 'preparing' && !(reservation.requiredCookUids || []).length))) {
+    if (action === 'cooking_start' && reservation.currentStatus !== 'called') {
       throw new HttpsError('failed-precondition', '지금 조리할 수 있는 예약만 조리 시작 처리할 수 있습니다.');
     } else if (action === 'cooking_complete' && reservation.currentStatus !== 'preparing') {
       throw new HttpsError('failed-precondition', '조리 중인 예약만 조리 완료할 수 있습니다.');
@@ -507,23 +485,16 @@ export const staffAction = checkedCall(async (request) => {
     if (action === 'no_show') updates.missedAt = FieldValue.serverTimestamp();
     if (action === 'cooking_start') {
       updates.cookingStartedAt = FieldValue.serverTimestamp();
-      updates.requiredCookUids = await requiredCookUids(transaction, reservation.menuId);
+      updates.requiredCookUids = [];
       updates.completedCookUids = [];
     }
     if (action === 'cooking_complete') {
-      const required = Array.isArray(reservation.requiredCookUids) ? reservation.requiredCookUids : [];
-      if (!required.length) throw new HttpsError('failed-precondition', '이 메뉴에 활성화된 조리 담당자가 없습니다. 설정에서 전담 메뉴를 배정해 주세요.');
-      if (!required.includes(profile.uid)) throw new HttpsError('permission-denied', '이 메뉴의 조리 완료 담당자가 아닙니다.');
-      const completed = [...new Set([...(Array.isArray(reservation.completedCookUids) ? reservation.completedCookUids : []), profile.uid])];
-      const remainingCount = required.filter((uid) => !completed.includes(uid)).length;
-      updates.requiredCookUids = required;
-      updates.completedCookUids = completed;
-      completionResult = { allCompleted: remainingCount === 0, remainingCount };
-      if (remainingCount === 0) {
-        updates.currentStatus = 'ready';
-        updates.cookingCompletedAt = FieldValue.serverTimestamp();
-        completedReservation = { reservationNo: reservation.reservationNo, menuName: reservation.menuName };
-      }
+      updates.requiredCookUids = [];
+      updates.completedCookUids = [profile.uid];
+      completionResult = { allCompleted: true, remainingCount: 0 };
+      updates.currentStatus = 'ready';
+      updates.cookingCompletedAt = FieldValue.serverTimestamp();
+      completedReservation = { reservationNo: reservation.reservationNo, menuName: reservation.menuName };
     }
     if (action === 'cancel') updates.cancelMemo = '직원 취소';
     if (action === 'hold') {
@@ -643,10 +614,9 @@ export const createStaffUser = checkedCall(async (request) => {
   const password = String(request.data?.password || '');
   const name = String(request.data?.name || '').trim().slice(0, 30);
   const role = request.data?.role === 'admin' ? 'admin' : 'staff';
-  const assignedMenuIds = normalizeAssignedMenuIds(request.data?.assignedMenuIds || []);
   if (!email.includes('@') || password.length < 8 || name.length < 2) throw new HttpsError('invalid-argument', '직원 이름, 이메일, 8자 이상 임시 비밀번호를 확인해 주세요.');
   const user = await auth.createUser({ email, password, displayName: name, disabled: false });
-  await db.doc(`staffProfiles/${user.uid}`).set({ name, email, role, active: true, assignedMenuIds, createdAt: FieldValue.serverTimestamp(), createdBy: profile.uid });
+  await db.doc(`staffProfiles/${user.uid}`).set({ name, email, role, active: true, createdAt: FieldValue.serverTimestamp(), createdBy: profile.uid });
   await writeOperationEvent({ type: '직원 계정 추가', actorUid: profile.uid, actorNameSnapshot: profile.name, content: `${name} · ${role}`, operationId: parseOperationId(request.data?.operationId) });
   return { uid: user.uid };
 });
@@ -658,7 +628,7 @@ export const updateStaffProfile = checkedCall(async (request) => {
   const target = await db.doc(`staffProfiles/${uid}`).get();
   if (!target.exists) throw new HttpsError('not-found', '대상 관리자 계정을 찾을 수 없습니다.');
   const targetEmail = String(target.data()?.email || '').toLowerCase();
-  if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role != null || request.data.active != null || request.data.assignedMenuIds != null)) throw new HttpsError('failed-precondition', '절대 관리자 계정은 변경할 수 없습니다.');
+  if (BOOTSTRAP_ADMINS.has(targetEmail) && (request.data.role != null || request.data.active != null)) throw new HttpsError('failed-precondition', '절대 관리자 계정은 변경할 수 없습니다.');
   const updates = { updatedAt: FieldValue.serverTimestamp() };
   if (request.data.role != null) {
     if (!['admin', 'staff'].includes(request.data.role)) throw new HttpsError('invalid-argument', '관리자 등급이 올바르지 않습니다.');
@@ -669,7 +639,6 @@ export const updateStaffProfile = checkedCall(async (request) => {
     if (uid === profile.uid && request.data.active === false) throw new HttpsError('failed-precondition', '자기 계정은 비활성화할 수 없습니다.');
     updates.active = request.data.active;
   }
-  if (request.data.assignedMenuIds != null) updates.assignedMenuIds = normalizeAssignedMenuIds(request.data.assignedMenuIds);
   if (Object.keys(updates).length === 1) throw new HttpsError('invalid-argument', '변경할 관리자 정보가 없습니다.');
   await db.doc(`staffProfiles/${uid}`).set(updates, { merge: true });
   if (request.data.active != null) await auth.updateUser(uid, { disabled: request.data.active !== true });

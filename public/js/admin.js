@@ -31,11 +31,10 @@ async function loadAdmin() {
     profile = response.data.profile;
     const isAdmin1 = profile.role === 'admin';
     qs('#admin-role-label').textContent = isAdmin1 ? (profile.absoluteAdmin ? '절대 관리자 · 1급' : '1급 관리자') : '2급 관리자';
-    const assignedNames = availableMenuItems().filter((menu) => profile.assignedMenuIds?.includes(menu.id)).map((menu) => menu.name);
-    qs('#admin-scope-label').textContent = isAdmin1 ? '전체 메뉴 예약을 관리합니다.' : assignedNames.length ? `전담 메뉴: ${assignedNames.join(', ')} · 해당 메뉴 예약만 표시됩니다.` : '전담 메뉴가 배정되지 않아 예약이 표시되지 않습니다.';
+    qs('#admin-scope-label').textContent = isAdmin1 ? '전체 예약을 관리합니다.' : '전체 예약을 조회할 수 있습니다. 상태 변경은 1급 관리자만 할 수 있습니다.';
     show(qs('#settings-link'), isAdmin1);
     qsa('.admin-only-control').forEach((element) => show(element, isAdmin1));
-    qsa('[data-admin-action]').forEach((button) => show(button, isAdmin1 || ['cooking_start', 'cooking_complete'].includes(button.dataset.adminAction)));
+    qsa('[data-admin-action]').forEach((button) => show(button, isAdmin1));
     ['#admin-history-button', '#admin-no-show-button', '#admin-sold-out-button'].forEach((selector) => show(qs(selector), isAdmin1));
     show(qs('#admin-login'), false); show(qs('#admin-view'), true); subscribeData();
   } catch (error) {
@@ -56,15 +55,7 @@ function subscribeData() {
 }
 
 function subscribeReservations() {
-  const assignedMenuIds = Array.isArray(profile?.assignedMenuIds) ? profile.assignedMenuIds : [];
-  if (profile?.role !== 'admin' && assignedMenuIds.length === 0) {
-    reservations = [];
-    renderReservations(); renderStats(); renderOperations();
-    return () => {};
-  }
-  const reservationsQuery = profile?.role === 'admin'
-    ? query(collection(db, 'reservations'), orderBy('createdAt', 'desc'))
-    : query(collection(db, 'reservations'), where('menuId', 'in', assignedMenuIds));
+  const reservationsQuery = query(collection(db, 'reservations'), orderBy('createdAt', 'desc'));
   return onSnapshot(reservationsQuery, (snapshot) => {
     reservations = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((left, right) => {
       const leftTime = left.createdAt?.toMillis?.() || 0;
@@ -107,14 +98,13 @@ function renderOperations() {
   const currentLabels = { preparing: '조리 중', ready: '조리 완료 · 수령 대기', called: '지금 차례', waiting: '지금 차례', held: '보류 후 차례' };
   qs('#admin-current-label').textContent = current ? (currentLabels[current.currentStatus] || statusText(current.currentStatus)) : '지금 차례';
   qs('#admin-current-reservation').textContent = current?.reservationNo || '대기 팀 없음';
-  const completion = current?.currentStatus === 'preparing' && Number(current.requiredCookUids?.length || 0) > 0 ? ` · 조리 확인 ${current.completedCookUids?.length || 0}/${current.requiredCookUids.length}` : '';
-  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}${completion}` : '';
+  qs('#admin-current-student').textContent = current ? `${current.studentIdNormalized} ${current.studentName} · ${current.menuName || settings.serviceName || ''}` : '';
 
   qsa('[data-admin-action]').forEach((button) => {
     const action = button.dataset.adminAction;
     const status = current?.currentStatus;
     const enabled = Boolean(current) && (
-      (action === 'cooking_start' && (status === 'called' || (status === 'preparing' && !(current.requiredCookUids || []).length))) ||
+      (action === 'cooking_start' && status === 'called') ||
       (action === 'cooking_complete' && status === 'preparing' && !(current.completedCookUids || []).includes(profile?.uid)) ||
       (action === 'pickup' && ['called', 'preparing', 'ready'].includes(status)) ||
       (['no_show', 'hold'].includes(action) && status === 'called') ||
@@ -136,7 +126,7 @@ function renderReservations() {
   const menu = qs('#reservation-menu-filter').value;
   const filtered = reservations.filter((item) => (!menu || item.menuName === menu) && [item.reservationNo, item.studentIdNormalized, item.studentName, item.menuName].some((value) => String(value || '').toLowerCase().includes(keyword)));
   const visible = filtered.slice(0, 100);
-  const scope = profile?.role === 'admin' ? '전체 메뉴' : '전담 메뉴만';
+  const scope = '전체 예약';
   qs('#reservation-result-count').textContent = filtered.length > 100 ? `${scope} · 총 ${filtered.length}건 중 최근 100건을 표시합니다.` : `${scope} · 총 ${filtered.length}건`;
   qs('#admin-reservations').innerHTML = visible.map((item) => `<article class="data-row reservation-record">
     <div><strong>${escapeHtml(item.reservationNo)}</strong><span>학번: ${escapeHtml(item.studentIdNormalized)}</span><span>이름: ${escapeHtml(item.studentName)}</span></div>
@@ -179,7 +169,7 @@ qsa('[data-admin-action]').forEach((button) => button.addEventListener('click', 
   setBusy(button, true);
   try {
     const response = await staffAction({ reservationId: button.dataset.reservationId, action: button.dataset.adminAction, operationId: operationId() });
-    showToast(button.dataset.adminAction === 'cooking_complete' && !response.data.allCompleted ? `조리 완료를 확인했습니다. 남은 담당자 ${response.data.remainingCount}명` : `${labels[button.dataset.adminAction]} 처리했습니다.`);
+    showToast(`${labels[button.dataset.adminAction]} 처리했습니다.`);
   } catch (error) { showToast(friendlyError(error), 5000); }
   finally { setBusy(button, false); }
 }));

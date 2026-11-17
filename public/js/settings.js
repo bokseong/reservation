@@ -4,7 +4,6 @@ import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, signOu
 import { collection, doc, onSnapshot, orderBy, query } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/13.2.0/firebase-functions.js';
 import { qs, qsa, show, escapeHtml, friendlyError, showToast, operationId, formatDateTime, toDateTimeLocal, setBusy } from './shared.js';
-import { availableMenuItems, formatPrice } from './menu.js';
 
 const getStaffSession = httpsCallable(functions, 'getStaffSession');
 const updateSettings = httpsCallable(functions, 'updateSettings');
@@ -60,18 +59,11 @@ function renderSettings() {
 }
 
 function renderStaff() {
-  qs('#settings-new-staff-menus').innerHTML = menuChoices([], 'new-staff-menu');
   qs('#settings-staff-list').innerHTML = staff.map((item) => {
     const absolute = item.absoluteAdmin === true || String(item.email || '').toLowerCase() === 'github.jwastro09@gmail.com';
     const role = absolute ? '절대 관리자' : item.role === 'admin' ? '1급 관리자' : '2급 관리자';
-    const assignedMenuIds = Array.isArray(item.assignedMenuIds) ? item.assignedMenuIds : [];
-    return `<article class="data-row staff-assignment-card"><div><strong>${escapeHtml(item.name)}</strong><span>${role} · ${item.active ? '사용 중' : '비활성'}</span>${absolute ? '' : `<fieldset class="menu-assignment staff-assignment"><legend>전담 메뉴</legend><div class="menu-assignment__choices">${menuChoices(assignedMenuIds, `staff-menu-${item.id}`)}</div><button type="button" data-settings-save-menus="${item.id}">전담 메뉴 저장</button></fieldset>`}</div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-settings-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-settings-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></article>`;
+    return `<article class="data-row"><div><strong>${escapeHtml(item.name)}</strong><span>${role} · ${item.active ? '사용 중' : '비활성'}</span></div><div class="data-row__actions">${absolute ? '<span class="state-pill">보호됨</span>' : `<button data-settings-role="${item.id}" data-next-role="${item.role === 'admin' ? 'staff' : 'admin'}">${item.role === 'admin' ? '2급으로' : '1급으로'}</button><button data-settings-active="${item.id}" data-next-active="${!item.active}">${item.active ? '비활성화' : '활성화'}</button>`}</div></article>`;
   }).join('') || '<div class="empty-state">관리자 계정이 없습니다.</div>';
-}
-
-function menuChoices(selectedMenuIds, inputName) {
-  const selected = new Set(selectedMenuIds);
-  return availableMenuItems().map((menu) => `<label><input type="checkbox" name="${escapeHtml(inputName)}" value="${escapeHtml(menu.id)}" ${selected.has(menu.id) ? 'checked' : ''}>${escapeHtml(menu.name)} · ${escapeHtml(formatPrice(menu.price))}</label>`).join('') || '<span class="muted">판매 가능한 메뉴가 없습니다.</span>';
 }
 
 qsa('[data-settings-tab]').forEach((button) => button.addEventListener('click', () => {
@@ -93,19 +85,12 @@ qs('#settings-break-form').addEventListener('submit', async (event) => { event.p
 qs('#settings-extend-break').addEventListener('click', async () => { try { await manageBreak({ action: 'extend', minutes: 5, operationId: operationId() }); showToast('5분 연장했습니다.'); } catch (error) { showToast(friendlyError(error), 5000); } });
 qs('#settings-end-break').addEventListener('click', async () => { try { await manageBreak({ action: 'end', operationId: operationId() }); showToast('휴식시간을 끝냈습니다.'); } catch (error) { showToast(friendlyError(error), 5000); } });
 
-qs('#settings-staff-create').addEventListener('submit', async (event) => { event.preventDefault(); const button = event.submitter; const form = new FormData(event.currentTarget); setBusy(button, true); try { await createStaffUser({ ...Object.fromEntries(form), assignedMenuIds: form.getAll('new-staff-menu'), operationId: operationId() }); event.currentTarget.reset(); showToast('관리자 계정을 만들었습니다.'); } catch (error) { showToast(friendlyError(error), 5000); } finally { setBusy(button, false); } });
+qs('#settings-staff-create').addEventListener('submit', async (event) => { event.preventDefault(); const button = event.submitter; const form = new FormData(event.currentTarget); setBusy(button, true); try { await createStaffUser({ ...Object.fromEntries(form), operationId: operationId() }); event.currentTarget.reset(); showToast('관리자 계정을 만들었습니다.'); } catch (error) { showToast(friendlyError(error), 5000); } finally { setBusy(button, false); } });
 qs('#settings-staff-list').addEventListener('click', async (event) => {
-  const roleButton = event.target.closest('[data-settings-role]'); const activeButton = event.target.closest('[data-settings-active]'); const menuButton = event.target.closest('[data-settings-save-menus]');
+  const roleButton = event.target.closest('[data-settings-role]'); const activeButton = event.target.closest('[data-settings-active]');
   try {
     if (roleButton) await updateStaffProfile({ uid: roleButton.dataset.settingsRole, role: roleButton.dataset.nextRole, operationId: operationId() });
     if (activeButton) await updateStaffProfile({ uid: activeButton.dataset.settingsActive, active: activeButton.dataset.nextActive === 'true', operationId: operationId() });
-    if (menuButton) {
-      const card = menuButton.closest('.staff-assignment-card');
-      const assignedMenuIds = [...card.querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value);
-      setBusy(menuButton, true);
-      try { await updateStaffProfile({ uid: menuButton.dataset.settingsSaveMenus, assignedMenuIds, operationId: operationId() }); showToast('전담 메뉴를 저장했습니다.'); }
-      finally { setBusy(menuButton, false); }
-    }
     if (roleButton || activeButton) showToast('관리자 등급을 변경했습니다.');
   } catch (error) { showToast(friendlyError(error), 5000); }
 });
