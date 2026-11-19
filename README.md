@@ -66,3 +66,6 @@ operations/{operationId}
 `counters`와 `operations`는 Functions 전용이며 클라이언트에서 읽거나 쓸 수 없습니다.
 
 최초 예약 기기에서 사용자가 조리 완료 푸시 알림을 허용하면 FCM token은 해당 예약의 `notificationTokens` 하위 컬렉션에만 저장됩니다. 관리자 조리 완료 처리 시에만 해당 기기로 FCM Web Push를 보냅니다. 고객 로그인은 필요하지 않습니다.
+
+
+관리자 페이지 접속: 저작권 표시 칸에서 '2026. 순천 복성고 학생회' 클릭
