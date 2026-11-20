@@ -10,7 +10,7 @@ export const MENU_ITEMS = Object.freeze([
   //menu('id-code', '표시 이름', 가격, '설명', '이모지', 판매여부)
   menu('tteokbokki', '떡볶이', 3000, '매콤달콤한 떡볶이', '🍴'),
   menu('01', 'test', 1500, 'testversionmenu', '🍴'),
-  menu('02', 'test2', 3000, 'testversion2', '🍴')
+  menu('02', 'test2', 5000, 'testversion2', '🍴')
 ]);
 
 export function availableMenuItems() {
@@ -24,5 +24,6 @@ export function findMenu(menuId) {
 export function formatPrice(price) {
   return `${Number(price || 0).toLocaleString('ko-KR')}원`;
 }
+
 
 
